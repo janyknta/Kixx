@@ -1,7 +1,7 @@
 // App.tsx
 
 import 'react-native-get-random-values';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -15,7 +15,10 @@ import VaultScreen from './src/screens/VaultScreen';
 import { AuthService } from './src/services/AuthService';
 import { MediaService } from './src/services/MediaService';
 import { CryptoService } from './src/services/CryptoService';
+import { FileService } from './src/services/FileService';
 import { PermissionsUtil } from './src/utils/permissions';
+import { SecurityManager } from './src/utils/SecurityManager';
+import { logDebug, logInfo, logWarn, logError } from './src/services/Logger';
 import { COLORS } from './src/utils/constants';
 import AuthScreen from './src/components/AuthScreen';
 
@@ -24,13 +27,15 @@ const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [authService] = useState(() => AuthService.getInstance());
   const [mediaService] = useState(() => MediaService.getInstance());
+  const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
     initializeApp();
-    setupAppStateListener();
+    const cleanup = setupAppStateListener();
 
     return () => {
       // Cleanup on unmount
+      cleanup();
       const cryptoService = CryptoService.getInstance();
       cryptoService.secureCleanup();
     };
@@ -46,20 +51,39 @@ const App: React.FC = () => {
 
       // Check if user is already authenticated and session is valid
       const authState = authService.getAuthState();
+      logDebug('App', 'Initialization auth state', authState);
+      logDebug('App', 'Session valid', { valid: authService.isSessionValid() });
+      
       if (authState.isAuthenticated && authService.isSessionValid()) {
-        setIsAuthenticated(true);
+        logInfo('App', 'Attempting to restore master key for valid session');
+        // Restore the master key for the valid session
+        const restoreResult = await authService.restoreMasterKey();
+        logDebug('App', 'Master key restore result', restoreResult);
+        
+        if (restoreResult.success) {
+          logInfo('App', 'Master key restored successfully');
+          setIsAuthenticated(true);
+        } else {
+          logError('App', 'Failed to restore master key', restoreResult.error);
+          // Force re-authentication if master key can't be restored
+          await authService.logout();
+          setIsAuthenticated(false);
+        }
+      } else {
+        logInfo('App', 'No valid session found');
+        setIsAuthenticated(false);
       }
 
       // Initialize permissions - only request once at startup
       const permissionResult = await PermissionsUtil.initializePermissions();
       if (!permissionResult.success && permissionResult.missingPermissions.length > 0) {
         // Only log missing permissions, don't show annoying popups
-        console.log('Missing permissions:', permissionResult.missingPermissions);
+        logWarn('App', 'Missing permissions', { permissions: permissionResult.missingPermissions });
         // App will still function with limited capabilities
       }
 
     } catch (error) {
-      console.error('App initialization failed:', error);
+      logError('App', 'App initialization failed', error);
       Alert.alert(
         'Initialization Error',
         'Failed to initialize the app. Please restart.',
@@ -72,13 +96,23 @@ const App: React.FC = () => {
 
   const setupAppStateListener = () => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // App is going to background - lock the vault
+      logDebug('App', 'App state changed', { from: appStateRef.current, to: nextAppState });
+      
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App is coming back to foreground from background
+        logInfo('App', 'App returning from background - requiring PIN');
+        setIsAuthenticated(false);
+        
+        // Clear master key
+        const cryptoService = CryptoService.getInstance();
+        cryptoService.clearMasterKey();
+      } else if (nextAppState.match(/inactive|background/)) {
+        // App is going to background
+        logInfo('App', 'App going to background/inactive');
         await handleAppBackground();
-      } else if (nextAppState === 'active') {
-        // App is becoming active - check session validity
-        await handleAppForeground();
       }
+      
+      appStateRef.current = nextAppState;
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
@@ -87,29 +121,31 @@ const App: React.FC = () => {
 
   const handleAppBackground = async () => {
     try {
+      logInfo('App', 'App going to background - clearing master key and requiring re-auth');
+      
+      // Apply security measures (remove from recents on Android)
+      SecurityManager.handleAppBackground();
+      
+      // Clean up temporary files (thumbnails, temp media)
+      const fileService = FileService.getInstance();
+      await fileService.cleanupOldTempFiles(5); // Clean files older than 5 minutes
+      
       // Clear sensitive data from memory
       const cryptoService = CryptoService.getInstance();
       cryptoService.clearMasterKey();
 
+      // Force re-authentication when app goes to background/recents
+      if (isAuthenticated) {
+        setIsAuthenticated(false);
+      }
+
       // Update last active time
       await authService.updateActivity();
     } catch (error) {
-      console.error('Failed to handle app background:', error);
+      logError('App', 'Failed to handle app background', error);
     }
   };
 
-  const handleAppForeground = async () => {
-    try {
-      // Check if session is still valid
-      if (isAuthenticated && !authService.isSessionValid()) {
-        // Session expired - require re-authentication
-        setIsAuthenticated(false);
-        await authService.logout();
-      }
-    } catch (error) {
-      console.error('Failed to handle app foreground:', error);
-    }
-  };
 
   const handleAuthenticated = async () => {
     try {
@@ -121,7 +157,7 @@ const App: React.FC = () => {
       
       setIsAuthenticated(true);
     } catch (error) {
-      console.error('Post-authentication setup failed:', error);
+      logError('App', 'Post-authentication setup failed', error);
       // Continue anyway - this is not critical
       setIsAuthenticated(true);
     }
@@ -132,7 +168,7 @@ const App: React.FC = () => {
       await authService.logout();
       setIsAuthenticated(false);
     } catch (error) {
-      console.error('Logout failed:', error);
+      logError('App', 'Logout failed', error);
       // Force logout anyway
       setIsAuthenticated(false);
     }

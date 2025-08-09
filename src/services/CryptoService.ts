@@ -146,6 +146,8 @@ export class CryptoService {
         padding: CryptoJS.pad.Pkcs7,
       });
 
+      // The original data was base64 string treated as UTF-8 during encryption
+      // So we need to get it back as UTF-8 (which is the base64 string)
       const decryptedString = decrypted.toString(CryptoJS.enc.Utf8);
 
       if (!decryptedString) {

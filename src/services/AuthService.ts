@@ -85,8 +85,18 @@ export class AuthService {
         service: 'VaultApp',
       });
 
+      // Set up crypto service with master key
+      const cryptoService = CryptoService.getInstance();
+      cryptoService.setMasterKey(encryptionKey);
+
+      // Update auth state to authenticated
       this.authState.isPinSet = true;
+      this.authState.isAuthenticated = true;
+      this.authState.lastActiveTime = Date.now();
       await this.saveAuthState();
+
+      // Start session timer
+      this.startSessionTimer();
 
       return { success: true };
     } catch (error) {
@@ -334,6 +344,57 @@ export class AuthService {
     const timeSinceLastActivity = Date.now() - this.authState.lastActiveTime;
 
     return timeSinceLastActivity < sessionTimeout;
+  }
+
+  /**
+   * Restore master key from keychain for valid session
+   */
+  public async restoreMasterKey(): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('RestoreMasterKey - Auth state:', this.authState);
+      console.log('RestoreMasterKey - Session valid:', this.isSessionValid());
+      
+      if (!this.authState.isAuthenticated || !this.isSessionValid()) {
+        console.log('RestoreMasterKey - User not authenticated or session expired');
+        return {
+          success: false,
+          error: 'User not authenticated or session expired',
+        };
+      }
+
+      console.log('RestoreMasterKey - Getting stored encryption key...');
+      // Get stored encryption key
+      const credentials = await getGenericPassword({
+        service: 'VaultApp',
+      });
+
+      console.log('RestoreMasterKey - Credentials found:', !!credentials);
+      if (!credentials) {
+        console.log('RestoreMasterKey - No credentials found');
+        return {
+          success: false,
+          error: 'Encryption key not found',
+        };
+      }
+
+      console.log('RestoreMasterKey - Setting master key...');
+      // Set up crypto service with master key
+      const cryptoService = CryptoService.getInstance();
+      cryptoService.setMasterKey(credentials.password);
+
+      console.log('RestoreMasterKey - Master key set successfully');
+      
+      // Restart session timer
+      this.startSessionTimer();
+
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to restore master key:', error);
+      return {
+        success: false,
+        error: 'Failed to restore encryption key',
+      };
+    }
   }
 
   /**

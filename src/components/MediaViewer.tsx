@@ -15,7 +15,7 @@ import {
   Animated,
   Share,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 import { BlurView } from '@react-native-community/blur';
 
 import { VaultItem } from '../types';
@@ -25,13 +25,15 @@ import { MediaService } from '../services/MediaService';
 interface MediaViewerProps {
   item: VaultItem;
   onClose: () => void;
+  onItemDeleted?: () => void;
   mediaService: MediaService;
 }
 
-const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }) => {
+const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted, mediaService }) => {
   const [decryptedPath, setDecryptedPath] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isControlsVisible, setIsControlsVisible] = useState(true);
+  const [hideTimer, setHideTimer] = useState<NodeJS.Timeout | null>(null);
   
   // Animation values
   const [fadeAnim] = useState(new Animated.Value(1));
@@ -44,13 +46,14 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }
   useEffect(() => {
     loadMedia();
     
-    // Auto-hide controls after 3 seconds
-    const hideTimer = setTimeout(() => {
+    // Auto-hide controls after 5 seconds
+    const timer = setTimeout(() => {
       hideControls();
-    }, 3000);
+    }, 5000);
+    setHideTimer(timer);
 
     return () => {
-      clearTimeout(hideTimer);
+      if (timer) clearTimeout(timer);
       cleanupTempFile();
     };
   }, [item]);
@@ -109,8 +112,14 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }
       hideControls();
     } else {
       showControls();
+      // Clear existing timer and set new one
+      if (hideTimer) clearTimeout(hideTimer);
+      const timer = setTimeout(() => {
+        hideControls();
+      }, 5000);
+      setHideTimer(timer);
     }
-  }, [isControlsVisible, showControls, hideControls]);
+  }, [isControlsVisible, showControls, hideControls, hideTimer]);
 
   // Pan responder for zoom and pan gestures
   const panResponder = PanResponder.create({
@@ -178,6 +187,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }
             try {
               const result = await mediaService.moveToTrash(item.id);
               if (result.success) {
+                onItemDeleted?.(); // Notify parent that item was deleted
                 onClose();
               } else {
                 Alert.alert('Error', result.error || 'Failed to delete item');
@@ -192,48 +202,18 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }
     );
   };
 
-  const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
 
   const renderControls = () => (
     <Animated.View style={[styles.controlsContainer, { opacity: fadeAnim }]}>
-      {/* Top controls */}
-      <BlurView style={styles.topControls} blurType="dark" blurAmount={10}>
-        <TouchableOpacity style={styles.controlButton} onPress={onClose}>
-          <Icon name="close" size={24} color={COLORS.surface} />
-        </TouchableOpacity>
-        
-        <View style={styles.mediaInfo}>
-          <Text style={styles.mediaTitle} numberOfLines={1}>
-            {item.originalName}
-          </Text>
-          <Text style={styles.mediaSubtitle}>
-            {formatFileSize(item.size)} • {new Date(item.dateAdded).toLocaleDateString()}
-          </Text>
-        </View>
-        
-        <View style={styles.topRightControls}>
-          <TouchableOpacity style={styles.controlButton} onPress={handleShare}>
-            <Icon name="share" size={24} color={COLORS.surface} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton} onPress={handleDelete}>
-            <Icon name="delete" size={24} color={COLORS.surface} />
-          </TouchableOpacity>
-        </View>
-      </BlurView>
-
-      {/* Video controls removed */}
+      {/* Back button */}
+      <TouchableOpacity style={styles.backButton} onPress={onClose}>
+        <Icon name="arrow-back" size={28} color={COLORS.surface} />
+      </TouchableOpacity>
+      
+      {/* Delete button */}
+      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+        <Icon name="delete" size={24} color={COLORS.surface} />
+      </TouchableOpacity>
     </Animated.View>
   );
 
@@ -277,7 +257,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, mediaService }
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="rgba(0,0,0,0.9)" barStyle="light-content" />
+      <StatusBar hidden={true} />
       
       {isLoading ? (
         <View style={styles.loadingContainer}>
@@ -308,7 +288,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    backgroundColor: 'black',
     zIndex: 1000,
   },
   loadingContainer: {
@@ -343,80 +323,33 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
+    pointerEvents: 'box-none',
   },
-  topControls: {
+  backButton: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingTop: StatusBar.currentHeight || 0,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  controlButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  mediaInfo: {
-    flex: 1,
-    marginHorizontal: 16,
-  },
-  mediaTitle: {
-    color: COLORS.surface,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  mediaSubtitle: {
-    color: COLORS.surface,
-    fontSize: 12,
-    opacity: 0.8,
-    marginTop: 2,
-  },
-  topRightControls: {
-    flexDirection: 'row',
-  },
-  bottomControls: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  playButton: {
-    padding: 8,
+    top: 50,
+    left: 20,
+    padding: 12,
     borderRadius: 25,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    marginRight: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  progressContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  timeText: {
-    color: COLORS.surface,
-    fontSize: 12,
-    fontWeight: '500',
-    minWidth: 40,
-    textAlign: 'center',
-  },
-  progressBar: {
-    flex: 1,
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
-    marginHorizontal: 12,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: COLORS.vaultAccent,
-    borderRadius: 2,
+  deleteButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    padding: 12,
+    borderRadius: 25,
+    backgroundColor: 'rgba(220, 53, 69, 0.8)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   videoUnsupported: {
     justifyContent: 'center',

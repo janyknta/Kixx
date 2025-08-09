@@ -12,14 +12,14 @@ import {
   StatusBar,
   Dimensions,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 
 import { MediaService } from '../services/MediaService';
 import { AuthService } from '../services/AuthService';
 import { VaultItem } from '../types';
 import { COLORS, GRID_SIZES } from '../utils/constants';
+import { logDebug, logInfo, logError } from '../services/Logger';
 import MediaGrid from '../components/MediaGrid';
-import ImportScreen from './ImportScreen';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
 
@@ -27,7 +27,7 @@ interface VaultScreenProps {
   onLogout: () => void;
 }
 
-type ScreenMode = 'vault' | 'import' | 'settings' | 'trash';
+type ScreenMode = 'vault' | 'settings' | 'trash';
 
 const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('vault');
@@ -37,6 +37,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
   
   const [mediaService] = useState(() => MediaService.getInstance());
   const [authService] = useState(() => AuthService.getInstance());
@@ -57,9 +58,28 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const loadVaultItems = useCallback(async () => {
     try {
       setIsLoading(true);
+      logDebug('VaultScreen', 'Loading vault items');
+      
+      // Ensure master key is available for decrypting metadata
+      const { CryptoService } = require('../services/CryptoService');
+      const cryptoService = CryptoService.getInstance();
+      
+      if (!cryptoService.isMasterKeySet()) {
+        logInfo('VaultScreen', 'Master key not set, attempting to restore');
+        const restoreResult = await authService.restoreMasterKey();
+        logDebug('VaultScreen', 'Master key restore result', restoreResult);
+        
+        if (!restoreResult.success) {
+          logError('VaultScreen', 'Failed to restore master key, forcing logout');
+          onLogout();
+          return;
+        }
+      }
       
       // Reload metadata from storage
       const loadResult = await mediaService.loadMetadata();
+      logDebug('VaultScreen', 'Load metadata result', loadResult);
+      
       if (!loadResult.success) {
         Alert.alert('Error', loadResult.error || 'Failed to load vault data');
         return;
@@ -67,14 +87,31 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
 
       // Get active vault items
       const items = mediaService.getVaultItems();
+      logInfo('VaultScreen', 'Loaded vault items', { count: items.length });
       setVaultItems(items);
+
+      // Generate missing thumbnails in background
+      if (items.length > 0) {
+        setTimeout(() => {
+          mediaService.regenerateMissingThumbnails().then((result) => {
+            if (result.generated > 0) {
+              logInfo('VaultScreen', 'Generated missing thumbnails', { count: result.generated });
+              // Refresh items to show new thumbnails
+              const updatedItems = mediaService.getVaultItems();
+              setVaultItems(updatedItems);
+            }
+          }).catch((error) => {
+            logError('VaultScreen', 'Thumbnail regeneration failed', error);
+          });
+        }, 1000); // Small delay to not interfere with UI loading
+      }
     } catch (error) {
-      console.error('Failed to load vault items:', error);
+      logError('VaultScreen', 'Failed to load vault items', error);
       Alert.alert('Error', 'Failed to load vault items');
     } finally {
       setIsLoading(false);
     }
-  }, [mediaService]);
+  }, [mediaService, authService, onLogout]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -82,10 +119,81 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     setIsRefreshing(false);
   }, [loadVaultItems]);
 
-  const handleImportComplete = useCallback(() => {
-    setCurrentScreen('vault');
-    loadVaultItems();
-  }, [loadVaultItems]);
+
+  const handleImportPress = useCallback(async () => {
+    try {
+      // Always ensure master key is available before importing
+      const { CryptoService } = require('../services/CryptoService');
+      const cryptoService = CryptoService.getInstance();
+      
+      logDebug('VaultScreen', 'Checking master key status');
+      logDebug('VaultScreen', 'Auth service state', authService.getAuthState());
+      logDebug('VaultScreen', 'Is session valid', { valid: authService.isSessionValid() });
+      logDebug('VaultScreen', 'Is master key set', { set: cryptoService.isMasterKeySet() });
+      
+      // If master key is not set, try to restore it
+      if (!cryptoService.isMasterKeySet()) {
+        logInfo('VaultScreen', 'Master key not set, attempting to restore');
+        
+        const restoreResult = await authService.restoreMasterKey();
+        logDebug('VaultScreen', 'Restore result', restoreResult);
+        
+        if (!restoreResult.success) {
+          // If restore fails, force re-authentication
+          Alert.alert(
+            'Authentication Required', 
+            `Session expired. ${restoreResult.error || 'Please authenticate again.'}`,
+            [
+              {
+                text: 'OK',
+                onPress: onLogout,
+              },
+            ]
+          );
+          return;
+        }
+      }
+      
+      // Double-check that master key is now set
+      if (!cryptoService.isMasterKeySet()) {
+        throw new Error('Master key could not be restored');
+      }
+      
+      logInfo('VaultScreen', 'Master key confirmed - proceeding with import');
+      
+      // Direct import using image picker
+      const result = await mediaService.importFromGallery((progress) => {
+        // You could show a progress indicator here if needed
+        logDebug('VaultScreen', 'Import progress', { current: progress.current, total: progress.total, file: progress.currentFileName });
+      });
+
+      if (result.success) {
+        // Only show alert if something was actually imported
+        if (result.imported > 0) {
+          Alert.alert(
+            'Import Complete',
+            `Successfully imported ${result.imported} item${result.imported !== 1 ? 's' : ''}${
+              result.errors.length > 0 ? ` with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : ''
+            }.`,
+            [{ text: 'OK' }]
+          );
+        }
+        // Refresh the vault items if anything was imported
+        if (result.imported > 0) {
+          await loadVaultItems();
+        }
+      } else {
+        // Show detailed error messages if import failed
+        const errorMessage = result.errors.length > 0 
+          ? `Failed to import media items:\n${result.errors.join('\n')}`
+          : 'Failed to import media items.';
+        Alert.alert('Import Failed', errorMessage);
+      }
+    } catch (error) {
+      logError('VaultScreen', 'Import failed', error);
+      Alert.alert('Import Failed', `An error occurred during import: ${error.message || error}`);
+    }
+  }, [onLogout, mediaService, loadVaultItems, authService]);
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -150,7 +258,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
                 );
               }
             } catch (error) {
-              console.error('Failed to move items to trash:', error);
+              logError('VaultScreen', 'Failed to move items to trash', error);
               Alert.alert('Error', 'Failed to move items to trash');
             }
           },
@@ -170,6 +278,10 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     return filtered;
   }, [vaultItems, searchQuery, mediaService]);
 
+  const handleViewerStateChange = useCallback((isOpen: boolean) => {
+    setIsViewerOpen(isOpen);
+  }, []);
+
   const renderHeader = () => {
     const stats = mediaService.getVaultStats();
     
@@ -178,12 +290,6 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         <View style={styles.headerTop}>
           <Text style={styles.headerTitle}>Vault</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => setCurrentScreen('trash')}
-            >
-              <Icon name="delete" size={24} color={COLORS.vaultText} />
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerButton}
               onPress={() => setCurrentScreen('settings')}
@@ -230,7 +336,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
       </Text>
       <TouchableOpacity
         style={styles.importButton}
-        onPress={() => setCurrentScreen('import')}
+        onPress={handleImportPress}
       >
         <Icon name="add" size={24} color={COLORS.surface} />
         <Text style={styles.importButtonText}>Import Media</Text>
@@ -241,7 +347,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const renderFAB = () => (
     <TouchableOpacity
       style={styles.fab}
-      onPress={() => setCurrentScreen('import')}
+      onPress={handleImportPress}
     >
       <Icon name="add" size={24} color={COLORS.surface} />
     </TouchableOpacity>
@@ -252,7 +358,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     
     return (
       <View style={styles.container}>
-        {renderHeader()}
+        {!isViewerOpen && renderHeader()}
         
         {filteredItems.length === 0 && !isLoading ? (
           renderEmptyState()
@@ -263,6 +369,8 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
             isSelectionMode={isSelectionMode}
             onItemSelect={handleItemSelect}
             onItemLongPress={handleItemLongPress}
+            onItemDeleted={loadVaultItems}
+            onViewerStateChange={handleViewerStateChange}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
@@ -273,20 +381,13 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
           />
         )}
         
-        {!isSelectionMode && renderFAB()}
+        {!isSelectionMode && !isViewerOpen && renderFAB()}
       </View>
     );
   };
 
   // Render different screens based on current mode
   switch (currentScreen) {
-    case 'import':
-      return (
-        <ImportScreen
-          onBack={() => setCurrentScreen('vault')}
-          onImportComplete={handleImportComplete}
-        />
-      );
     case 'settings':
       return (
         <SettingsScreen

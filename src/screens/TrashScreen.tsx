@@ -12,7 +12,7 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 import { Animated } from 'react-native';
 
 import { MediaService } from '../services/MediaService';

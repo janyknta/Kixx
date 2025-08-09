@@ -11,7 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 
 import { COLORS } from '../utils/constants';
 

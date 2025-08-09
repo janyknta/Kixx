@@ -15,7 +15,7 @@ import {
   Dimensions,
   Share,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 import { Animated } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
 

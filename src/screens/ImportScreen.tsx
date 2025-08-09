@@ -14,7 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 import { BlurView } from '@react-native-community/blur';
 import { Animated } from 'react-native';
 
@@ -153,17 +153,10 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
 
       // Check permissions first
       const hasPermission = await PermissionsUtil.checkAndRequestPermission('photoLibrary');
-      // if (!hasPermission) {
-      //   Alert.alert(
-      //     'Permission Required',
-      //     'Photo library access is required to import media.',
-      //     [
-      //       { text: 'Cancel', onPress: onBack },
-      //       { text: 'Grant Permission', onPress: loadGalleryItems },
-      //     ]
-      //   );
-      //   return;
-      // }
+      if (!hasPermission) {
+        console.warn('Photo library permission not granted');
+        // Continue anyway - some permissions might work
+      }
 
       // Load photos and videos from gallery
       const photos = await CameraRoll.getPhotos({
@@ -172,7 +165,19 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
         include: ['filename', 'fileSize', 'imageSize', 'playableDuration'],
       });
 
-      const items: GalleryItem[] = photos.edges.map((edge) => ({
+      const items: GalleryItem[] = photos.edges.map((edge: {
+        node: {
+          type: string;
+          timestamp: number;
+          image: {
+            uri: string;
+            filename?: string;
+            fileSize?: number;
+            width?: number;
+            height?: number;
+          };
+        };
+      }) => ({
         uri: edge.node.image.uri,
         filename: edge.node.image.filename ?? undefined,
         type: edge.node.type,
@@ -245,7 +250,7 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
         }));
 
       // Import with progress tracking
-      const result = await mediaService.importFromGallery((progress) => {
+      const result = await mediaService.importMediaItems(selectedMediaItems, (progress) => {
         setImportProgress(progress);
       });
 

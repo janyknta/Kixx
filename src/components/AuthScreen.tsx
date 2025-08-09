@@ -1,10 +1,9 @@
-// src/screens/AuthScreen.tsx
+// src/components/AuthScreen.tsx
 
 import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -14,20 +13,23 @@ import {
 } from 'react-native';
 import { AuthService } from '../services/AuthService';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
+import NumberPad from './NumberPad';
+import CalculatorScreen from './CalculatorScreen';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
 }
 
 type AuthMode = 'setup' | 'login' | 'biometric';
+type SetupStep = 'enter' | 'confirm';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [setupStep, setSetupStep] = useState<SetupStep>('enter');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [authService] = useState(() => AuthService.getInstance());
-  const pinInputRefs = React.useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
     initializeAuth();
@@ -57,13 +59,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   };
 
   const handleSetupPin = async () => {
+    console.log('Setup PIN - pin:', pin, 'confirmPin:', confirmPin);
+    console.log('Setup PIN - pin length:', pin.length, 'confirmPin length:', confirmPin.length);
+    console.log('Setup PIN - pins match:', pin === confirmPin);
+    
     if (pin.length !== VAULT_CONFIG.PIN_LENGTH) {
       Alert.alert('Invalid PIN', `PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
       return;
     }
 
+    if (confirmPin.length !== VAULT_CONFIG.PIN_LENGTH) {
+      Alert.alert('Invalid PIN', `Confirmation PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
+      return;
+    }
+
     if (pin !== confirmPin) {
-      Alert.alert('PIN Mismatch', 'PINs do not match');
+      Alert.alert('PIN Mismatch', `PINs do not match. Original: "${pin}" vs Confirm: "${confirmPin}"`);
       return;
     }
 
@@ -146,116 +157,126 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     }
   };
 
-  const renderPinInput = (value: string, onChange: (text: string) => void, placeholder: string) => (
-    <View style={styles.pinContainer}>
-      <TouchableOpacity style={styles.pinInputWrapper} onPress={() => {
-        // Focus the hidden input when dots are tapped
-        const input = pinInputRefs.current[placeholder === 'Enter your PIN' ? 0 : 1];
-        input?.focus();
-      }}>
-        <TextInput
-          ref={(ref) => {
-            if (placeholder === 'Enter your PIN') {
-              if (!pinInputRefs.current) pinInputRefs.current = [];
-              pinInputRefs.current[0] = ref;
-            } else {
-              if (!pinInputRefs.current) pinInputRefs.current = [];
-              pinInputRefs.current[1] = ref;
-            }
-          }}
-          style={styles.pinInput}
-          value={value}
-          onChangeText={onChange}
-          keyboardType="numeric"
-          maxLength={VAULT_CONFIG.PIN_LENGTH}
-          secureTextEntry
-          placeholder=""
-          autoFocus={placeholder === 'Enter your PIN'}
-        />
-        <View style={styles.pinDots}>
-          {Array.from({ length: VAULT_CONFIG.PIN_LENGTH }).map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.pinDot,
-                value.length > index && styles.pinDotFilled,
-              ]}
+
+  const renderSetupMode = () => {
+    if (setupStep === 'confirm') {
+      return (
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Confirm Your PIN</Text>
+            <Text style={styles.subtitle}>
+              Please enter your PIN again to confirm
+            </Text>
+          </View>
+
+          <View style={styles.form}>
+            <NumberPad
+              value={confirmPin}
+              onChange={setConfirmPin}
+              maxLength={VAULT_CONFIG.PIN_LENGTH}
             />
-          ))}
+            
+            <TouchableOpacity
+              style={[
+                styles.button, 
+                styles.primaryButton,
+                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButton
+              ]}
+              onPress={handleSetupPin}
+              disabled={confirmPin.length !== VAULT_CONFIG.PIN_LENGTH}
+            >
+              <Text style={[
+                styles.buttonText,
+                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButtonText
+              ]}>
+                {isLoading ? (
+                  <ActivityIndicator color={COLORS.surface} size="small" />
+                ) : (
+                  'Create Vault'
+                )}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.button, styles.secondaryButton]}
+              onPress={() => {
+                setSetupStep('enter');
+                setPin('');
+                setConfirmPin('');
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Start Over</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        {value.length === 0 && (
-          <Text style={styles.pinPlaceholder}>{placeholder}</Text>
-        )}
-      </TouchableOpacity>
-    </View>
-  );
+      );
+    }
 
-  const renderSetupMode = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Setup Your Vault</Text>
-        <Text style={styles.subtitle}>
-          Create a {VAULT_CONFIG.PIN_LENGTH}-digit PIN to secure your vault
-        </Text>
-      </View>
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Setup Your Vault</Text>
+          <Text style={styles.subtitle}>
+            Create a {VAULT_CONFIG.PIN_LENGTH}-digit PIN to secure your vault
+          </Text>
+        </View>
 
-      <View style={styles.form}>
-        <Text style={styles.label}>Enter PIN</Text>
-        {renderPinInput(pin, setPin, 'Enter your PIN')}
-
-        <Text style={styles.label}>Confirm PIN</Text>
-        {renderPinInput(confirmPin, setConfirmPin, 'Confirm your PIN')}
-
-        <TouchableOpacity
-          style={[styles.button, styles.primaryButton]}
-          onPress={handleSetupPin}
-          disabled={isLoading || pin.length !== VAULT_CONFIG.PIN_LENGTH || confirmPin.length !== VAULT_CONFIG.PIN_LENGTH}
-        >
-          {isLoading ? (
-            <ActivityIndicator color={COLORS.surface} />
-          ) : (
-            <Text style={styles.buttonText}>Create Vault</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderLoginMode = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Enter your PIN to access your vault</Text>
-      </View>
-
-      <View style={styles.form}>
-        <Text style={styles.label}>Enter PIN</Text>
-        {renderPinInput(pin, setPin, 'Enter your PIN')}
-
-        <TouchableOpacity
-          style={[styles.button, styles.primaryButton]}
-          onPress={handleLogin}
-          disabled={isLoading || pin.length !== VAULT_CONFIG.PIN_LENGTH}
-        >
-          {isLoading ? (
-            <ActivityIndicator color={COLORS.surface} />
-          ) : (
-            <Text style={styles.buttonText}>Unlock Vault</Text>
-          )}
-        </TouchableOpacity>
-
-        {authService.getAuthState().biometricAvailable && (
+        <View style={styles.form}>
+          <NumberPad
+            value={pin}
+            onChange={setPin}
+            maxLength={VAULT_CONFIG.PIN_LENGTH}
+          />
+          
           <TouchableOpacity
-            style={[styles.button, styles.secondaryButton]}
-            onPress={handleBiometricAuth}
-            disabled={isLoading}
+            style={[
+              styles.button, 
+              styles.primaryButton,
+              pin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButton
+            ]}
+            onPress={() => {
+              if (pin.length === VAULT_CONFIG.PIN_LENGTH) {
+                setSetupStep('confirm');
+              }
+            }}
+            disabled={pin.length !== VAULT_CONFIG.PIN_LENGTH}
           >
-            <Text style={styles.secondaryButtonText}>Use Biometric</Text>
+            <Text style={[
+              styles.buttonText,
+              pin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButtonText
+            ]}>
+              Continue
+            </Text>
           </TouchableOpacity>
-        )}
+          
+          {isLoading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator color={COLORS.vaultAccent} size="large" />
+              <Text style={styles.loadingText}>Creating vault...</Text>
+            </View>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
+
+  const renderLoginMode = () => {
+    const handleCalculatorPin = async (enteredPin: string) => {
+      setPin(enteredPin);
+      const result = await authService.authenticateWithPin(enteredPin);
+      if (result.success) {
+        onAuthenticated();
+      }
+      // Don't show error - calculator should remain looking like calculator
+      return result.success;
+    };
+    
+    return (
+      <CalculatorScreen
+        onPinEntered={handleCalculatorPin}
+      />
+    );
+  };
 
   const renderBiometricMode = () => (
     <View style={styles.container}>
@@ -344,53 +365,16 @@ const styles = StyleSheet.create({
   form: {
     alignItems: 'center',
   },
-  label: {
-    fontSize: 16,
-    color: COLORS.vaultText,
-    marginBottom: 10,
-    alignSelf: 'flex-start',
-    marginLeft: 20,
-  },
-  pinContainer: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  pinInputWrapper: {
-    position: 'relative',
-    alignItems: 'center',
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
-  },
-  pinInput: {
-    position: 'absolute',
-    opacity: 0,
-    width: 1,
-    height: 1,
-    zIndex: -1,
-  },
-  pinDots: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: 200,
-    paddingVertical: 20,
-  },
-  pinDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: COLORS.textSecondary,
-    backgroundColor: 'transparent',
-  },
-  pinDotFilled: {
-    backgroundColor: COLORS.vaultAccent,
-    borderColor: COLORS.vaultAccent,
-  },
-  pinPlaceholder: {
-    position: 'absolute',
-    top: 60,
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
   button: {
     width: width - 40,
@@ -408,6 +392,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.vaultAccent,
   },
+  disabledButton: {
+    backgroundColor: COLORS.textSecondary,
+    opacity: 0.5,
+  },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
@@ -417,6 +405,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.vaultAccent,
+  },
+  disabledButtonText: {
+    color: COLORS.surface,
+    opacity: 0.7,
   },
   loadingText: {
     marginTop: 20,

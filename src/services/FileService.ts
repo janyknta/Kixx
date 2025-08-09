@@ -89,6 +89,11 @@ export class FileService {
    */
   public async fileExists(filePath: string): Promise<boolean> {
     try {
+      // Special URIs from Camera Roll may not work with exists()
+      if (filePath.startsWith('ph://') || filePath.startsWith('content://')) {
+        // For these URIs, assume they exist if they came from Camera Roll
+        return true;
+      }
       return await RNFS.exists(filePath);
     } catch {
       return false;
@@ -115,13 +120,28 @@ export class FileService {
    */
   public async readFileAsBase64(filePath: string): Promise<string | null> {
     try {
-      const exists = await this.fileExists(filePath);
+      // Handle different URI schemes (ph://, content://, file://)
+      let actualPath = filePath;
+      
+      // For Camera Roll URIs, we might need special handling
+      if (filePath.startsWith('ph://') || filePath.startsWith('content://')) {
+        // These are special URIs that need to be copied first
+        try {
+          // Try to read directly first (some versions of RNFS support this)
+          return await RNFS.readFile(filePath, 'base64');
+        } catch (error) {
+          console.error('Cannot read special URI directly:', error);
+          return null;
+        }
+      }
+      
+      const exists = await this.fileExists(actualPath);
       if (!exists) {
         console.error('File does not exist:', filePath);
         return null;
       }
 
-      return await RNFS.readFile(filePath, 'base64');
+      return await RNFS.readFile(actualPath, 'base64');
     } catch (error) {
       console.error('Failed to read file:', error);
       return null;
@@ -129,10 +149,11 @@ export class FileService {
   }
 
   /**
-   * Write base64 data to file
+   * Write base64 data to file (decodes base64 to binary)
    */
   public async writeBase64ToFile(filePath: string, base64Data: string): Promise<FileOperationResult> {
     try {
+      // Write base64 data as binary file (decode base64 to bytes)
       await RNFS.writeFile(filePath, base64Data, 'base64');
       return { success: true, path: filePath };
     } catch (error) {
@@ -140,6 +161,22 @@ export class FileService {
       return {
         success: false,
         error: 'Failed to write file',
+      };
+    }
+  }
+
+  /**
+   * Write string data to file as UTF-8
+   */
+  public async writeStringToFile(filePath: string, stringData: string): Promise<FileOperationResult> {
+    try {
+      await RNFS.writeFile(filePath, stringData, 'utf8');
+      return { success: true, path: filePath };
+    } catch (error) {
+      console.error('Failed to write string to file:', error);
+      return {
+        success: false,
+        error: 'Failed to write string to file',
       };
     }
   }
@@ -153,6 +190,9 @@ export class FileService {
     cryptoService: CryptoService
   ): Promise<FileOperationResult> {
     try {
+      console.log('FileService.moveToVault - Received CryptoService instance:', cryptoService);
+      console.log('FileService.moveToVault - CryptoService master key set at start:', cryptoService.isMasterKeySet());
+      
       // Check if source file exists
       const exists = await this.fileExists(sourcePath);
       if (!exists) {
@@ -172,7 +212,19 @@ export class FileService {
       }
 
       // Encrypt the file data
+      console.log('FileService.moveToVault - About to encrypt file data');
+      console.log('FileService.moveToVault - CryptoService master key set:', cryptoService.isMasterKeySet());
+      
+      if (!cryptoService.isMasterKeySet()) {
+        return {
+          success: false,
+          error: 'Master key not set',
+        };
+      }
+      
       const encryptionResult = cryptoService.encryptFile(fileData);
+      console.log('FileService.moveToVault - Encryption result:', encryptionResult);
+      
       if (!encryptionResult.success) {
         return {
           success: false,
@@ -184,8 +236,8 @@ export class FileService {
       const vaultFileName = CryptoService.generateSecureFileName(VAULT_CONFIG.ENCRYPTED_EXTENSION);
       const vaultFilePath = `${FileService.getMediaDirectory()}/${vaultFileName}`;
 
-      // Write encrypted data to vault
-      const writeResult = await this.writeBase64ToFile(vaultFilePath, encryptionResult.encryptedData);
+      // Write encrypted data to vault as string
+      const writeResult = await this.writeStringToFile(vaultFilePath, encryptionResult.encryptedData);
       if (!writeResult.success) {
         return writeResult;
       }
@@ -357,6 +409,34 @@ export class FileService {
       }
     } catch (error) {
       console.error('Failed to cleanup temp files:', error);
+    }
+  }
+
+  /**
+   * Clean up old temp files (older than specified minutes)
+   */
+  public async cleanupOldTempFiles(olderThanMinutes: number = 30): Promise<void> {
+    try {
+      const tempDir = FileService.getTempDirectory();
+      const exists = await this.fileExists(tempDir);
+      
+      if (exists) {
+        const files = await RNFS.readDir(tempDir);
+        const cutoffTime = Date.now() - (olderThanMinutes * 60 * 1000);
+        
+        for (const file of files) {
+          if (file.isFile() && file.mtime && file.mtime.getTime() < cutoffTime) {
+            try {
+              await RNFS.unlink(file.path);
+            } catch (error) {
+              // Individual file cleanup failure shouldn't stop the process
+              console.error('Failed to cleanup temp file:', file.path, error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to cleanup old temp files:', error);
     }
   }
 

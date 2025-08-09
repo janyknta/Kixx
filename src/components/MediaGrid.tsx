@@ -12,13 +12,15 @@ import {
   RefreshControl,
   Alert,
   RefreshControlProps,
+  ActivityIndicator,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from "@react-native-vector-icons/material-icons";
 import { BlurView } from '@react-native-community/blur';
 
 import { VaultItem } from '../types';
 import { COLORS, GRID_SIZES } from '../utils/constants';
 import { MediaService } from '../services/MediaService';
+import { logDebug, logError } from '../services/Logger';
 import MediaViewer from './MediaViewer';
 interface MediaGridProps {
   items: VaultItem[];
@@ -26,8 +28,10 @@ interface MediaGridProps {
   isSelectionMode: boolean;
   onItemSelect: (itemId: string) => void;
   onItemLongPress: (itemId: string) => void;
+  onItemDeleted?: () => void;
   refreshControl?: React.ReactElement<RefreshControlProps> | undefined;
   gridSize?: 'small' | 'medium' | 'large';
+  onViewerStateChange?: (isViewerOpen: boolean) => void;
 }
 
 interface GridItemProps {
@@ -51,25 +55,45 @@ const GridItem: React.FC<GridItemProps> = ({
 }) => {
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [mediaService] = useState(() => MediaService.getInstance());
 
   const loadThumbnail = useCallback(async () => {
-    if (thumbnailUri || isLoading) return;
+    if (thumbnailUri || isLoading || !item.thumbnailPath) return;
     
     setIsLoading(true);
     try {
-      // For now, we'll show a placeholder
-      // In a real implementation, you'd decrypt and generate thumbnails
-      setThumbnailUri(null);
+      logDebug('MediaGrid', 'Loading thumbnail for item', { id: item.id, name: item.originalName });
+      
+      const thumbnailResult = await mediaService.getThumbnailForDisplay(item);
+      if (thumbnailResult.success && thumbnailResult.uri) {
+        setThumbnailUri(thumbnailResult.uri);
+        logDebug('MediaGrid', 'Thumbnail loaded successfully', { id: item.id });
+      } else {
+        logError('MediaGrid', 'Failed to load thumbnail', { error: thumbnailResult.error, id: item.id });
+      }
     } catch (error) {
-      console.error('Failed to load thumbnail:', error);
+      logError('MediaGrid', 'Failed to load thumbnail', { error, id: item.id });
     } finally {
       setIsLoading(false);
     }
-  }, [thumbnailUri, isLoading]);
+  }, [thumbnailUri, isLoading, item, mediaService]);
 
   React.useEffect(() => {
     loadThumbnail();
   }, [loadThumbnail]);
+
+  // Cleanup temporary thumbnail files
+  React.useEffect(() => {
+    return () => {
+      if (thumbnailUri && thumbnailUri.startsWith('file://')) {
+        // Clean up temporary thumbnail file when component unmounts
+        const filePath = thumbnailUri.replace('file://', '');
+        require('react-native-fs').unlink(filePath).catch((error: any) => {
+          logDebug('MediaGrid', 'Failed to cleanup thumbnail file', { error, path: filePath });
+        });
+      }
+    };
+  }, [thumbnailUri]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -105,14 +129,25 @@ const GridItem: React.FC<GridItemProps> = ({
     >
       <View style={styles.mediaContainer}>
         {thumbnailUri ? (
-          <Image source={{ uri: thumbnailUri }} style={styles.thumbnail} />
+          <Image 
+            source={{ uri: thumbnailUri }} 
+            style={styles.thumbnail}
+            onError={() => {
+              logError('MediaGrid', 'Failed to display thumbnail image', { id: item.id });
+              setThumbnailUri(null);
+            }}
+          />
         ) : (
           <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
-            <Icon
-              name={item.type === 'video' ? 'videocam' : 'photo'}
-              size={32}
-              color={COLORS.textSecondary}
-            />
+            {isLoading ? (
+              <ActivityIndicator size="small" color={COLORS.textSecondary} />
+            ) : (
+              <Icon
+                name={item.type === 'video' ? 'videocam' : 'photo'}
+                size={32}
+                color={COLORS.textSecondary}
+              />
+            )}
           </View>
         )}
         
@@ -158,8 +193,10 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   isSelectionMode,
   onItemSelect,
   onItemLongPress,
+  onItemDeleted,
   refreshControl,
   gridSize = 'medium',
+  onViewerStateChange,
 }) => {
   const [viewerItem, setViewerItem] = useState<VaultItem | null>(null);
   const [mediaService] = useState(() => MediaService.getInstance());
@@ -171,12 +208,14 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   const handleItemPress = useCallback((item: VaultItem) => {
     if (!isSelectionMode) {
       setViewerItem(item);
+      onViewerStateChange?.(true);
     }
-  }, [isSelectionMode]);
+  }, [isSelectionMode, onViewerStateChange]);
 
   const handleCloseViewer = useCallback(() => {
     setViewerItem(null);
-  }, []);
+    onViewerStateChange?.(false);
+  }, [onViewerStateChange]);
 
   const renderItem = useCallback(({ item }: { item: VaultItem }) => (
     <GridItem
@@ -236,6 +275,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
         <MediaViewer
           item={viewerItem}
           onClose={handleCloseViewer}
+          onItemDeleted={onItemDeleted}
           mediaService={mediaService}
         />
       )}

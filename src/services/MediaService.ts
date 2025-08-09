@@ -4,12 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { launchImageLibrary, MediaType as PickerMediaType } from 'react-native-image-picker';
 import RNFS from 'react-native-fs';
+import ImageResizer from '@bam.tech/react-native-image-resizer';
 import { v4 as uuidv4 } from 'uuid';
 
 import { STORAGE_KEYS, VAULT_CONFIG, ERROR_MESSAGES } from '../utils/constants';
 import { VaultItem, VaultMetadata, VaultSettings, MediaItem, ImportProgress, MediaType } from '../types';
 import { CryptoService } from './CryptoService';
 import { FileService } from './FileService';
+import { logDebug, logInfo, logWarn, logError } from './Logger';
 
 export class MediaService {
   private static instance: MediaService;
@@ -21,6 +23,7 @@ export class MediaService {
     this.fileService = FileService.getInstance();
     this.cryptoService = CryptoService.getInstance();
     this.vaultMetadata = this.getDefaultMetadata();
+    logDebug('MediaService', 'Constructor initialized with CryptoService instance');
   }
 
   public static getInstance(): MediaService {
@@ -70,10 +73,13 @@ export class MediaService {
   public async loadMetadata(): Promise<{ success: boolean; error?: string }> {
     try {
       const metadataPath = `${FileService.getMetadataDirectory()}/${VAULT_CONFIG.METADATA_FILE}`;
+      console.log('LoadMetadata - Checking path:', metadataPath);
       const exists = await this.fileService.fileExists(metadataPath);
+      console.log('LoadMetadata - Metadata file exists:', exists);
 
       if (!exists) {
         // First time setup - save default metadata
+        console.log('LoadMetadata - First time setup, creating default metadata');
         await this.saveMetadata();
         return { success: true };
       }
@@ -88,7 +94,10 @@ export class MediaService {
       }
 
       // Decrypt metadata
+      console.log('LoadMetadata - Decrypting metadata, crypto master key set:', this.cryptoService.isMasterKeySet());
       const decryptResult = this.cryptoService.decryptMetadata<VaultMetadata>(encryptedMetadata);
+      console.log('LoadMetadata - Decrypt result:', decryptResult.success, decryptResult.error);
+      
       if (!decryptResult.success || !decryptResult.data) {
         return {
           success: false,
@@ -97,6 +106,7 @@ export class MediaService {
       }
 
       this.vaultMetadata = decryptResult.data;
+      console.log('LoadMetadata - Loaded metadata with', this.vaultMetadata.items.length, 'items');
       return { success: true };
     } catch (error) {
       console.error('Failed to load metadata:', error);
@@ -138,7 +148,85 @@ export class MediaService {
   }
 
   /**
-   * Import media from device gallery
+   * Import specific media items to vault
+   */
+  public async importMediaItems(
+    mediaItems: MediaItem[],
+    progressCallback?: (progress: ImportProgress) => void
+  ): Promise<{ success: boolean; imported: number; errors: string[] }> {
+    const errors: string[] = [];
+    let importedCount = 0;
+
+    try {
+      if (mediaItems.length === 0) {
+        return { success: true, imported: 0, errors: [] };
+      }
+
+      // Check if user is authenticated and crypto service is ready
+      if (!this.cryptoService.isMasterKeySet()) {
+        return {
+          success: false,
+          imported: 0,
+          errors: ['Authentication required. Please authenticate to import media.'],
+        };
+      }
+
+      // Process each selected media item
+      for (let i = 0; i < mediaItems.length; i++) {
+        const mediaItem = mediaItems[i];
+
+        progressCallback?.({
+          current: i + 1,
+          total: mediaItems.length,
+          currentFileName: mediaItem.filename || 'Unknown file',
+          status: 'encrypting',
+        });
+
+        try {
+          console.log(`Importing: ${mediaItem.filename || 'Unknown'} from ${mediaItem.uri}`);
+          const importResult = await this.importSingleMedia(mediaItem);
+          if (importResult.success) {
+            importedCount++;
+            console.log(`Successfully imported: ${mediaItem.filename || 'Unknown'}`);
+          } else {
+            const errorMsg = `${mediaItem.filename || 'Unknown file'}: ${importResult.error}`;
+            console.error('Import failed:', errorMsg);
+            errors.push(errorMsg);
+          }
+        } catch (error) {
+          const errorMsg = `${mediaItem.filename || 'Unknown file'}: ${error}`;
+          console.error('Import exception:', errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      // Save updated metadata
+      await this.saveMetadata();
+
+      progressCallback?.({
+        current: mediaItems.length,
+        total: mediaItems.length,
+        currentFileName: '',
+        status: 'completed',
+      });
+
+      return {
+        success: true,
+        imported: importedCount,
+        errors,
+      };
+    } catch (error) {
+      console.error('Import media items failed:', error);
+      return {
+        success: false,
+        imported: importedCount,
+        errors: [ERROR_MESSAGES.IMPORT_FAILED],
+      };
+    }
+  }
+
+  /**
+   * Import media from device gallery using image picker
    */
   public async importFromGallery(
     progressCallback?: (progress: ImportProgress) => void
@@ -147,18 +235,44 @@ export class MediaService {
     let importedCount = 0;
 
     try {
+      console.log('ImportFromGallery - Starting import...');
+      console.log('ImportFromGallery - CryptoService instance:', this.cryptoService);
+      console.log('ImportFromGallery - CryptoService master key set:', this.cryptoService.isMasterKeySet());
+      
+      // Check if master key is set before starting
+      if (!this.cryptoService.isMasterKeySet()) {
+        console.log('ImportFromGallery - Master key not set, returning error');
+        return {
+          success: false,
+          imported: 0,
+          errors: ['Authentication required. Master key not available for encryption.'],
+        };
+      }
+      
+      // Store reference to ensure we're using the same instance
+      const cryptoService = this.cryptoService;
+      console.log('ImportFromGallery - Stored cryptoService reference:', cryptoService);
+      console.log('ImportFromGallery - Stored cryptoService master key set:', cryptoService.isMasterKeySet());
+      
       // Launch image picker for multiple selection
       const result = await new Promise<MediaItem[]>((resolve, reject) => {
         launchImageLibrary(
           {
-            mediaType: 'mixed' as PickerMediaType,
+            mediaType: 'mixed',
             selectionLimit: 0, // 0 means unlimited
             quality: 1,
             includeBase64: false,
           },
-          (response) => {
-            if (response.didCancel || response.errorMessage) {
-              reject(new Error(response.errorMessage || 'User cancelled'));
+          (response: any) => {
+            if (response.didCancel) {
+              // User cancelled - return empty array, don't treat as error
+              logInfo('MediaService', 'User cancelled image selection');
+              resolve([]);
+              return;
+            }
+
+            if (response.errorMessage) {
+              reject(new Error(response.errorMessage));
               return;
             }
 
@@ -167,7 +281,7 @@ export class MediaService {
               return;
             }
 
-            const mediaItems: MediaItem[] = response.assets.map((asset) => ({
+            const mediaItems: MediaItem[] = response.assets.map((asset: any) => ({
               uri: asset.uri || '',
               filename: asset.fileName,
               type: asset.type || '',
@@ -186,6 +300,33 @@ export class MediaService {
         return { success: true, imported: 0, errors: [] };
       }
 
+      console.log('ImportFromGallery - Processing', result.length, 'selected items');
+      console.log('ImportFromGallery - After image picker, cryptoService reference:', cryptoService);
+      console.log('ImportFromGallery - After image picker, master key set:', cryptoService.isMasterKeySet());
+      console.log('ImportFromGallery - After image picker, this.cryptoService master key set:', this.cryptoService.isMasterKeySet());
+      
+      // Check if master key was cleared during image picker operation
+      if (!this.cryptoService.isMasterKeySet()) {
+        console.log('ImportFromGallery - Master key was cleared during image picker, attempting to restore...');
+        
+        // Get AuthService and restore master key
+        const { AuthService } = require('./AuthService');
+        const authService = AuthService.getInstance();
+        
+        const restoreResult = await authService.restoreMasterKey();
+        console.log('ImportFromGallery - Master key restore result:', restoreResult);
+        
+        if (!restoreResult.success) {
+          return {
+            success: false,
+            imported: 0,
+            errors: ['Master key was lost during image selection. Please try again.'],
+          };
+        }
+        
+        console.log('ImportFromGallery - Master key restored, continuing with import...');
+      }
+      
       // Process each selected media item
       for (let i = 0; i < result.length; i++) {
         const mediaItem = result[i];
@@ -198,19 +339,34 @@ export class MediaService {
         });
 
         try {
+          console.log(`ImportFromGallery - Processing item ${i + 1}/${result.length}: ${mediaItem.filename}`);
+          console.log('ImportFromGallery - Before import, stored cryptoService master key set:', cryptoService.isMasterKeySet());
+          console.log('ImportFromGallery - Before import, this.cryptoService master key set:', this.cryptoService.isMasterKeySet());
+          
+          // Get fresh CryptoService instance to see if it helps
+          const freshCryptoService = CryptoService.getInstance();
+          console.log('ImportFromGallery - Fresh CryptoService instance:', freshCryptoService);
+          console.log('ImportFromGallery - Fresh CryptoService master key set:', freshCryptoService.isMasterKeySet());
+          console.log('ImportFromGallery - Are instances same?', freshCryptoService === cryptoService, freshCryptoService === this.cryptoService);
+          
           const importResult = await this.importSingleMedia(mediaItem);
+          console.log(`ImportFromGallery - Import result for ${mediaItem.filename}:`, importResult);
+          
           if (importResult.success) {
             importedCount++;
           } else {
             errors.push(`${mediaItem.filename}: ${importResult.error}`);
           }
         } catch (error) {
+          console.error(`ImportFromGallery - Exception for ${mediaItem.filename}:`, error);
           errors.push(`${mediaItem.filename}: ${error}`);
         }
       }
 
       // Save updated metadata
-      await this.saveMetadata();
+      console.log('ImportFromGallery - Saving metadata with', this.vaultMetadata.items.length, 'items');
+      const saveResult = await this.saveMetadata();
+      console.log('ImportFromGallery - Metadata save result:', saveResult);
 
       progressCallback?.({
         current: result.length,
@@ -239,6 +395,9 @@ export class MediaService {
    */
   private async importSingleMedia(mediaItem: MediaItem): Promise<{ success: boolean; error?: string }> {
     try {
+      console.log('ImportSingleMedia - Starting for:', mediaItem.filename || 'Unknown');
+      console.log('ImportSingleMedia - CryptoService master key set:', this.cryptoService.isMasterKeySet());
+      
       if (!mediaItem.uri) {
         return {
           success: false,
@@ -280,11 +439,17 @@ export class MediaService {
       };
 
       // Move and encrypt media file
+      console.log('ImportSingleMedia - About to call moveToVault');
+      console.log('ImportSingleMedia - CryptoService instance:', this.cryptoService);
+      console.log('ImportSingleMedia - CryptoService master key set before moveToVault:', this.cryptoService.isMasterKeySet());
+      
       const moveResult = await this.fileService.moveToVault(
         mediaItem.uri,
         vaultItem.originalName,
         this.cryptoService
       );
+      
+      console.log('ImportSingleMedia - moveToVault result:', moveResult);
 
       if (!moveResult.success) {
         return {
@@ -304,13 +469,9 @@ export class MediaService {
       // Add to metadata
       this.vaultMetadata.items.push(vaultItem);
 
-      // Try to delete original file from gallery/storage
-      try {
-        await this.fileService.deleteFile(mediaItem.uri);
-      } catch (error) {
-        console.warn('Could not delete original file:', error);
-        // Non-critical error - continue with import
-      }
+      // Skip deleting original files from camera roll as it may cause permission issues
+      // The files will remain in the user's gallery but encrypted copies are in the vault
+      console.log('Import completed, original file preserved in gallery');
 
       return { success: true };
     } catch (error) {
@@ -327,20 +488,113 @@ export class MediaService {
    */
   private async generateThumbnail(vaultItem: VaultItem): Promise<{ success: boolean; path?: string; error?: string }> {
     try {
-      // For now, we'll skip thumbnail generation and implement it later
-      // This would involve decrypting the media, creating a thumbnail, and re-encrypting it
-      
-      const thumbnailFileName = `${vaultItem.id}${VAULT_CONFIG.THUMBNAIL_SUFFIX}${VAULT_CONFIG.ENCRYPTED_EXTENSION}`;
-      const thumbnailPath = `${FileService.getThumbnailsDirectory()}/${thumbnailFileName}`;
+      // Only generate thumbnails for images
+      if (vaultItem.type !== 'image') {
+        return {
+          success: false,
+          error: 'Thumbnails only supported for images',
+        };
+      }
 
-      // TODO: Implement actual thumbnail generation
-      // For now, return empty success
-      return {
-        success: false,
-        error: 'Thumbnail generation not implemented yet',
-      };
+      logDebug('MediaService', 'Generating thumbnail for item', { id: vaultItem.id, name: vaultItem.originalName });
+
+      // Check if ImageResizer is available
+      if (!ImageResizer || typeof ImageResizer.createResizedImage !== 'function') {
+        logError('MediaService', 'ImageResizer module not available', { available: !!ImageResizer });
+        return {
+          success: false,
+          error: 'Image resizer module not properly linked',
+        };
+      }
+
+      // First, decrypt the original image to a temporary file
+      const tempOriginalPath = this.fileService.getTempFilePath(`original_${vaultItem.id}`);
+      const decryptResult = await this.fileService.restoreFromVault(
+        vaultItem.encryptedPath,
+        tempOriginalPath,
+        this.cryptoService
+      );
+
+      if (!decryptResult.success) {
+        logError('MediaService', 'Failed to decrypt image for thumbnail generation', decryptResult.error);
+        return {
+          success: false,
+          error: decryptResult.error,
+        };
+      }
+
+      try {
+        // Resize the image to create thumbnail
+        const thumbnailResponse = await ImageResizer.createResizedImage(
+          tempOriginalPath,
+          VAULT_CONFIG.THUMBNAIL_SIZE,
+          VAULT_CONFIG.THUMBNAIL_SIZE,
+          'JPEG',
+          VAULT_CONFIG.THUMBNAIL_QUALITY * 100, // Convert 0.8 to 80
+          0, // rotation
+          undefined, // outputPath (auto-generate)
+          false, // keepMeta
+          {
+            mode: 'cover',
+            onlyScaleDown: true,
+          }
+        );
+
+        // Read the thumbnail as base64
+        const thumbnailBase64 = await RNFS.readFile(thumbnailResponse.uri, 'base64');
+
+        // Encrypt the thumbnail
+        const encryptResult = this.cryptoService.encryptFile(thumbnailBase64);
+        if (!encryptResult.success) {
+          logError('MediaService', 'Failed to encrypt thumbnail', encryptResult.error);
+          return {
+            success: false,
+            error: encryptResult.error,
+          };
+        }
+
+        // Save encrypted thumbnail
+        const thumbnailFileName = `${vaultItem.id}${VAULT_CONFIG.THUMBNAIL_SUFFIX}${VAULT_CONFIG.ENCRYPTED_EXTENSION}`;
+        const thumbnailPath = `${FileService.getThumbnailsDirectory()}/${thumbnailFileName}`;
+        
+        const saveResult = await this.fileService.writeStringToFile(thumbnailPath, encryptResult.encryptedData);
+        if (!saveResult.success) {
+          logError('MediaService', 'Failed to save encrypted thumbnail', saveResult.error);
+          return {
+            success: false,
+            error: saveResult.error,
+          };
+        }
+
+        // Clean up temporary files
+        try {
+          await RNFS.unlink(tempOriginalPath);
+          await RNFS.unlink(thumbnailResponse.uri);
+        } catch (cleanupError) {
+          logWarn('MediaService', 'Failed to cleanup temporary files', cleanupError);
+        }
+
+        logInfo('MediaService', 'Thumbnail generated successfully', { path: thumbnailPath });
+        return {
+          success: true,
+          path: thumbnailPath,
+        };
+
+      } catch (resizeError) {
+        logError('MediaService', 'Image resize failed', resizeError);
+        // Clean up temp file
+        try {
+          await RNFS.unlink(tempOriginalPath);
+        } catch {}
+        
+        return {
+          success: false,
+          error: 'Failed to resize image for thumbnail',
+        };
+      }
+
     } catch (error) {
-      console.error('Thumbnail generation failed:', error);
+      logError('MediaService', 'Thumbnail generation failed', error);
       return {
         success: false,
         error: 'Thumbnail generation failed',
@@ -367,6 +621,54 @@ export class MediaService {
    */
   public getVaultItem(id: string): VaultItem | undefined {
     return this.vaultMetadata.items.find(item => item.id === id);
+  }
+
+  /**
+   * Get decrypted thumbnail for display
+   */
+  public async getThumbnailForDisplay(vaultItem: VaultItem): Promise<{ success: boolean; uri?: string; error?: string }> {
+    try {
+      if (!vaultItem.thumbnailPath) {
+        return {
+          success: false,
+          error: 'No thumbnail available for this item',
+        };
+      }
+
+      logDebug('MediaService', 'Getting thumbnail for display', { id: vaultItem.id });
+
+      // Generate temporary file name for decrypted thumbnail
+      const tempThumbnailName = `thumb_${vaultItem.id}_${Date.now()}.jpg`;
+      const tempThumbnailPath = this.fileService.getTempFilePath(tempThumbnailName);
+
+      // Decrypt thumbnail to temp path
+      const decryptResult = await this.fileService.restoreFromVault(
+        vaultItem.thumbnailPath,
+        tempThumbnailPath,
+        this.cryptoService
+      );
+
+      if (!decryptResult.success) {
+        logError('MediaService', 'Failed to decrypt thumbnail', decryptResult.error);
+        return {
+          success: false,
+          error: decryptResult.error,
+        };
+      }
+
+      // Return file URI for display
+      return {
+        success: true,
+        uri: `file://${tempThumbnailPath}`,
+      };
+
+    } catch (error) {
+      logError('MediaService', 'Failed to get thumbnail for display', error);
+      return {
+        success: false,
+        error: 'Failed to get thumbnail',
+      };
+    }
   }
 
   /**
@@ -570,6 +872,67 @@ export class MediaService {
       console.log(`Cleaned up ${itemsToDelete.length} old trash items`);
     } catch (error) {
       console.error('Failed to cleanup trash:', error);
+    }
+  }
+
+  /**
+   * Regenerate missing thumbnails for existing items
+   */
+  public async regenerateMissingThumbnails(): Promise<{ success: boolean; generated: number; errors: string[] }> {
+    const errors: string[] = [];
+    let generatedCount = 0;
+
+    try {
+      logInfo('MediaService', 'Starting thumbnail regeneration for missing thumbnails');
+      
+      const items = this.vaultMetadata.items.filter(item => 
+        !item.isDeleted && 
+        item.type === 'image' && 
+        !item.thumbnailPath
+      );
+
+      logInfo('MediaService', 'Found items missing thumbnails', { count: items.length });
+
+      for (const item of items) {
+        try {
+          logDebug('MediaService', 'Generating thumbnail for item', { id: item.id, name: item.originalName });
+          
+          const thumbnailResult = await this.generateThumbnail(item);
+          if (thumbnailResult.success && thumbnailResult.path) {
+            item.thumbnailPath = thumbnailResult.path;
+            generatedCount++;
+            logInfo('MediaService', 'Thumbnail generated', { id: item.id });
+          } else {
+            const errorMsg = `${item.originalName}: ${thumbnailResult.error}`;
+            logError('MediaService', 'Thumbnail generation failed', { id: item.id, error: thumbnailResult.error });
+            errors.push(errorMsg);
+          }
+        } catch (error) {
+          const errorMsg = `${item.originalName}: ${error}`;
+          logError('MediaService', 'Thumbnail generation exception', { id: item.id, error });
+          errors.push(errorMsg);
+        }
+      }
+
+      if (generatedCount > 0) {
+        // Save updated metadata
+        await this.saveMetadata();
+        logInfo('MediaService', 'Thumbnail regeneration completed', { generated: generatedCount, errors: errors.length });
+      }
+
+      return {
+        success: true,
+        generated: generatedCount,
+        errors,
+      };
+
+    } catch (error) {
+      logError('MediaService', 'Thumbnail regeneration failed', error);
+      return {
+        success: false,
+        generated: generatedCount,
+        errors: [ERROR_MESSAGES.UNKNOWN_ERROR],
+      };
     }
   }
 
