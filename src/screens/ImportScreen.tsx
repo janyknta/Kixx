@@ -23,6 +23,7 @@ import { PermissionsUtil } from '../utils/permissions';
 import { COLORS } from '../utils/constants';
 import { MediaItem, ImportProgress } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 interface ImportScreenProps {
   onBack: () => void;
@@ -226,7 +227,6 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
 
   const handleImport = useCallback(() => {
     if (selectedItems.size === 0) {
-      Alert.alert('No Selection', 'Please select at least one item to import.');
       return;
     }
     setShowConfirmDialog(true);
@@ -255,13 +255,7 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
       });
 
       if (result.success) {
-        Alert.alert(
-          'Import Complete',
-          `Successfully imported ${result.imported} items${
-            result.errors.length > 0 ? ` with ${result.errors.length} errors` : ''
-          }.`,
-          [{ text: 'OK', onPress: onImportComplete }]
-        );
+        onImportComplete();
       } else {
         Alert.alert('Import Failed', 'Failed to import media items.');
       }
@@ -317,47 +311,16 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
     </View>
   );
 
-  const renderImportProgress = () => (
-    <View style={styles.progressOverlay}>
-      <BlurView style={styles.progressBlur} blurType="dark" blurAmount={10}>
-        <View style={styles.progressContainer}>
-          <ActivityIndicator size="large" color={COLORS.vaultAccent} />
-          
-          <Text style={styles.progressTitle}>
-            {importProgress?.status === 'completed' ? 'Import Complete!' : 'Importing Media...'}
-          </Text>
-          
-          {importProgress && (
-            <>
-              <Text style={styles.progressText}>
-                {importProgress.current} of {importProgress.total}
-              </Text>
-              
-              <Text style={styles.progressFileName}>
-                {importProgress.currentFileName}
-              </Text>
-              
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${(importProgress.current / importProgress.total) * 100}%` },
-                  ]}
-                />
-              </View>
-            </>
-          )}
-        </View>
-      </BlurView>
-    </View>
-  );
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
-        <ActivityIndicator size="large" color={COLORS.vaultAccent} />
-        <Text style={styles.loadingText}>Loading gallery...</Text>
+        <LoadingOverlay
+          visible={true}
+          message="Loading your gallery..."
+          icon="photo-library"
+        />
       </View>
     );
   }
@@ -384,7 +347,7 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
           numColumns={3}
           contentContainerStyle={styles.gridContainer}
           showsVerticalScrollIndicator={false}
-          getItemLayout={(data, index) => ({
+          getItemLayout={(_, index) => ({
             length: itemSize,
             offset: itemSize * index,
             index,
@@ -392,7 +355,17 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
         />
       )}
 
-      {isImporting && renderImportProgress()}
+      <LoadingOverlay
+        visible={isImporting}
+        message={importProgress?.status === 'completed' ? 'Import Complete!' : 'Importing your media...'}
+        progress={importProgress ? {
+          current: importProgress.current,
+          total: importProgress.total,
+          filename: importProgress.currentFileName,
+        } : undefined}
+        type="progress"
+        icon="download"
+      />
 
       <ConfirmDialog
         visible={showConfirmDialog}
@@ -558,66 +531,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     lineHeight: 22,
-  },
-  progressOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  progressBlur: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressContainer: {
-    backgroundColor: COLORS.vaultSurface,
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    minWidth: 250,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  progressTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.vaultText,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  progressText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginTop: 8,
-  },
-  progressFileName: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-    textAlign: 'center',
-    maxWidth: 200,
-  },
-  progressBar: {
-    width: 200,
-    height: 4,
-    backgroundColor: COLORS.border,
-    borderRadius: 2,
-    marginTop: 16,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: COLORS.vaultAccent,
-    borderRadius: 2,
   },
 });
 

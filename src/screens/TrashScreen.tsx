@@ -19,6 +19,7 @@ import { MediaService } from '../services/MediaService';
 import { VaultItem } from '../types';
 import { COLORS } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 interface TrashScreenProps {
   onBack: () => void;
@@ -508,6 +509,12 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
           }
         />
       )}
+
+      <LoadingOverlay
+        visible={isLoading}
+        message="Loading trash items..."
+        icon="delete"
+      />
 
       <ConfirmDialog
         visible={showConfirmDialog}

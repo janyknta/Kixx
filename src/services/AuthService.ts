@@ -2,7 +2,6 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setGenericPassword, getGenericPassword, resetGenericPassword } from 'react-native-keychain';
-import ReactNativeBiometrics from 'react-native-biometrics';
 import { STORAGE_KEYS, VAULT_CONFIG, ERROR_MESSAGES } from '../utils/constants';
 import { AuthState } from '../types';
 import { CryptoService } from './CryptoService';
@@ -16,8 +15,6 @@ export class AuthService {
     this.authState = {
       isAuthenticated: false,
       isPinSet: false,
-      biometricAvailable: false,
-      biometricEnabled: false,
       lastActiveTime: 0,
     };
   }
@@ -37,17 +34,6 @@ export class AuthService {
       // Check if PIN is already set
       const pinHash = await AsyncStorage.getItem(STORAGE_KEYS.PIN_HASH);
       this.authState.isPinSet = !!pinHash;
-
-      // Check biometric availability
-      const biometrics = new ReactNativeBiometrics();
-      const { available, biometryType } = await biometrics.isSensorAvailable();
-      this.authState.biometricAvailable = available;
-
-      if (available) {
-        // Check if biometric is enabled by user
-        const biometricEnabled = await AsyncStorage.getItem('biometric_enabled');
-        this.authState.biometricEnabled = biometricEnabled === 'true';
-      }
 
       // Load auth state from storage
       await this.loadAuthState();
@@ -161,90 +147,7 @@ export class AuthService {
     }
   }
 
-  /**
-   * Authenticate with biometrics
-   */
-  public async authenticateWithBiometrics(): Promise<{ success: boolean; error?: string }> {
-    try {
-      if (!this.authState.biometricAvailable || !this.authState.biometricEnabled) {
-        return {
-          success: false,
-          error: ERROR_MESSAGES.BIOMETRIC_NOT_AVAILABLE,
-        };
-      }
 
-      const biometrics = new ReactNativeBiometrics();
-      const { success } = await biometrics.simplePrompt({
-        promptMessage: 'Authenticate to access your vault',
-        cancelButtonText: 'Cancel',
-      });
-
-      if (!success) {
-        return {
-          success: false,
-          error: 'Biometric authentication failed',
-        };
-      }
-
-      // Get stored encryption key
-      const credentials = await getGenericPassword({
-        service: 'VaultApp',
-      });
-
-      if (!credentials) {
-        return {
-          success: false,
-          error: 'Encryption key not found',
-        };
-      }
-
-      // Set up crypto service with master key
-      const cryptoService = CryptoService.getInstance();
-      cryptoService.setMasterKey(credentials.password);
-
-      // Update auth state
-      this.authState.isAuthenticated = true;
-      this.authState.lastActiveTime = Date.now();
-      await this.saveAuthState();
-
-      // Start session timer
-      this.startSessionTimer();
-
-      return { success: true };
-    } catch (error) {
-      console.error('Biometric authentication failed:', error);
-      return {
-        success: false,
-        error: 'Biometric authentication failed',
-      };
-    }
-  }
-
-  /**
-   * Enable/disable biometric authentication
-   */
-  public async setBiometricEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
-    try {
-      if (enabled && !this.authState.biometricAvailable) {
-        return {
-          success: false,
-          error: ERROR_MESSAGES.BIOMETRIC_NOT_AVAILABLE,
-        };
-      }
-
-      await AsyncStorage.setItem('biometric_enabled', enabled.toString());
-      this.authState.biometricEnabled = enabled;
-      await this.saveAuthState();
-
-      return { success: true };
-    } catch (error) {
-      console.error('Failed to set biometric preference:', error);
-      return {
-        success: false,
-        error: 'Failed to update biometric settings',
-      };
-    }
-  }
 
   /**
    * Change PIN
@@ -299,7 +202,6 @@ export class AuthService {
         STORAGE_KEYS.DEVICE_SALT,
         STORAGE_KEYS.AUTH_STATE,
         STORAGE_KEYS.FAILED_ATTEMPTS,
-        'biometric_enabled',
       ]);
 
       // Clear keychain
@@ -311,8 +213,6 @@ export class AuthService {
       this.authState = {
         isAuthenticated: false,
         isPinSet: false,
-        biometricAvailable: this.authState.biometricAvailable, // Keep biometric availability
-        biometricEnabled: false,
         lastActiveTime: 0,
       };
 

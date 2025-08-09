@@ -23,7 +23,6 @@ export interface VaultMetadata {
 
 export interface VaultSettings {
   autoLockTimeout: number; // minutes
-  biometricEnabled: boolean;
   trashRetentionDays: number;
   showThumbnails: boolean;
   gridSize: 'small' | 'medium' | 'large';
@@ -61,8 +60,6 @@ export interface ImportProgress {
 export interface AuthState {
   isAuthenticated: boolean;
   isPinSet: boolean;
-  biometricAvailable: boolean;
-  biometricEnabled: boolean;
   lastActiveTime: number;
 }
 

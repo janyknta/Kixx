@@ -170,7 +170,6 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
       });
     } catch (error) {
       console.error('Share failed:', error);
-      Alert.alert('Error', 'Failed to share media');
     }
   };
 
@@ -247,7 +246,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
             style={styles.media}
             resizeMode="contain"
             onError={() => {
-              Alert.alert('Error', 'Image display failed');
+              console.error('Image display failed');
             }}
           />
         )}

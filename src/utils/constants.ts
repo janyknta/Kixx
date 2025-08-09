@@ -50,13 +50,10 @@ export const PERMISSIONS = {
     READ_EXTERNAL_STORAGE: 'android.permission.READ_EXTERNAL_STORAGE',
     WRITE_EXTERNAL_STORAGE: 'android.permission.WRITE_EXTERNAL_STORAGE',
     CAMERA: 'android.permission.CAMERA',
-    USE_BIOMETRIC: 'android.permission.USE_BIOMETRIC',
-    USE_FINGERPRINT: 'android.permission.USE_FINGERPRINT',
   },
   IOS: {
     PHOTO_LIBRARY: 'ios.permission.PHOTO_LIBRARY',
     CAMERA: 'ios.permission.CAMERA',
-    FACE_ID: 'ios.permission.FACE_ID',
   },
 };
 
@@ -107,7 +104,6 @@ export const ERROR_MESSAGES = {
   INSUFFICIENT_STORAGE: 'Insufficient storage space',
   PERMISSION_DENIED: 'Permission denied',
   INVALID_PIN: 'Invalid PIN',
-  BIOMETRIC_NOT_AVAILABLE: 'Biometric authentication not available',
   IMPORT_FAILED: 'Failed to import media',
   EXPORT_FAILED: 'Failed to export media',
   NETWORK_ERROR: 'Network error occurred',

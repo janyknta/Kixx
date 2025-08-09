@@ -15,12 +15,13 @@ import { AuthService } from '../services/AuthService';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import NumberPad from './NumberPad';
 import CalculatorScreen from './CalculatorScreen';
+import LoadingOverlay from './LoadingOverlay';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
 }
 
-type AuthMode = 'setup' | 'login' | 'biometric';
+type AuthMode = 'setup' | 'login';
 type SetupStep = 'enter' | 'confirm';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
@@ -43,10 +44,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       
       if (!authState.isPinSet) {
         setAuthMode('setup');
-      } else if (authState.biometricAvailable && authState.biometricEnabled) {
-        setAuthMode('biometric');
-        // Auto-trigger biometric authentication
-        handleBiometricAuth();
       } else {
         setAuthMode('login');
       }
@@ -63,18 +60,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     console.log('Setup PIN - pin length:', pin.length, 'confirmPin length:', confirmPin.length);
     console.log('Setup PIN - pins match:', pin === confirmPin);
     
-    if (pin.length !== VAULT_CONFIG.PIN_LENGTH) {
-      Alert.alert('Invalid PIN', `PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
-      return;
-    }
-
-    if (confirmPin.length !== VAULT_CONFIG.PIN_LENGTH) {
-      Alert.alert('Invalid PIN', `Confirmation PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
-      return;
-    }
-
-    if (pin !== confirmPin) {
-      Alert.alert('PIN Mismatch', `PINs do not match. Original: "${pin}" vs Confirm: "${confirmPin}"`);
+    if (pin.length !== VAULT_CONFIG.PIN_LENGTH || 
+        confirmPin.length !== VAULT_CONFIG.PIN_LENGTH || 
+        pin !== confirmPin) {
       return;
     }
 
@@ -82,14 +70,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     try {
       const result = await authService.setupPin(pin);
       if (result.success) {
-        Alert.alert(
-          'PIN Setup Complete',
-          'Your vault is now secure. Would you like to enable biometric authentication?',
-          [
-            { text: 'Skip', onPress: onAuthenticated },
-            { text: 'Enable', onPress: enableBiometric },
-          ]
-        );
+        onAuthenticated();
       } else {
         Alert.alert('Setup Failed', result.error || 'Failed to setup PIN');
       }
@@ -103,7 +84,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const handleLogin = async () => {
     if (pin.length !== VAULT_CONFIG.PIN_LENGTH) {
-      Alert.alert('Invalid PIN', `PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
       return;
     }
 
@@ -124,38 +104,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     }
   };
 
-  const handleBiometricAuth = async () => {
-    setIsLoading(true);
-    try {
-      const result = await authService.authenticateWithBiometrics();
-      if (result.success) {
-        onAuthenticated();
-      } else {
-        // Fall back to PIN authentication
-        setAuthMode('login');
-      }
-    } catch (error) {
-      console.error('Biometric authentication failed:', error);
-      setAuthMode('login');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const enableBiometric = async () => {
-    try {
-      const result = await authService.setBiometricEnabled(true);
-      if (result.success) {
-        onAuthenticated();
-      } else {
-        Alert.alert('Biometric Setup Failed', result.error || 'Failed to enable biometric');
-        onAuthenticated(); // Continue without biometric
-      }
-    } catch (error) {
-      console.error('Biometric setup failed:', error);
-      onAuthenticated();
-    }
-  };
 
 
   const renderSetupMode = () => {
@@ -248,13 +196,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
               Continue
             </Text>
           </TouchableOpacity>
-          
-          {isLoading && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator color={COLORS.vaultAccent} size="large" />
-              <Text style={styles.loadingText}>Creating vault...</Text>
-            </View>
-          )}
         </View>
       </View>
     );
@@ -278,45 +219,24 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     );
   };
 
-  const renderBiometricMode = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Biometric Authentication</Text>
-        <Text style={styles.subtitle}>Use your fingerprint or face to unlock</Text>
-      </View>
 
-      <View style={styles.form}>
-        <TouchableOpacity
-          style={[styles.button, styles.primaryButton]}
-          onPress={handleBiometricAuth}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color={COLORS.surface} />
-          ) : (
-            <Text style={styles.buttonText}>Authenticate</Text>
-          )}
-        </TouchableOpacity>
+  const getLoadingMessage = () => {
+    if (authMode === 'setup' && setupStep === 'confirm') {
+      return 'Creating your secure vault...';
+    } else if (authMode === 'login') {
+      return 'Unlocking vault...';
+    }
+    return 'Setting up vault...';
+  };
 
-        <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={() => setAuthMode('login')}
-          disabled={isLoading}
-        >
-          <Text style={styles.secondaryButtonText}>Use PIN Instead</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  if (isLoading && authMode === 'biometric') {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Initializing...</Text>
-      </View>
-    );
-  }
+  const getLoadingIcon = () => {
+    if (authMode === 'setup') {
+      return 'security';
+    } else if (authMode === 'login') {
+      return 'lock-open';
+    }
+    return 'security';
+  };
 
   return (
     <>
@@ -324,7 +244,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       <View style={styles.screen}>
         {authMode === 'setup' && renderSetupMode()}
         {authMode === 'login' && renderLoginMode()}
-        {authMode === 'biometric' && renderBiometricMode()}
+        
+        <LoadingOverlay
+          visible={isLoading}
+          message={getLoadingMessage()}
+          icon={getLoadingIcon()}
+        />
       </View>
     </>
   );
@@ -341,9 +266,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'center',
-  },
-  loadingContainer: {
-    alignItems: 'center',
   },
   header: {
     alignItems: 'center',
@@ -364,17 +286,6 @@ const styles = StyleSheet.create({
   },
   form: {
     alignItems: 'center',
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
   },
   button: {
     width: width - 40,
@@ -409,11 +320,6 @@ const styles = StyleSheet.create({
   disabledButtonText: {
     color: COLORS.surface,
     opacity: 0.7,
-  },
-  loadingText: {
-    marginTop: 20,
-    fontSize: 16,
-    color: COLORS.textSecondary,
   },
 });
 

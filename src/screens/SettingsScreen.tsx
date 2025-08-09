@@ -25,6 +25,7 @@ import { FileService } from '../services/FileService';
 import { VaultSettings } from '../types';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -126,6 +127,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [currentPin, setCurrentPin] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
 
   const [authService] = useState(() => AuthService.getInstance());
   const [mediaService] = useState(() => MediaService.getInstance());
@@ -168,19 +171,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
     }
   }, [settings, mediaService]);
 
-  const handleBiometricToggle = useCallback(async (enabled: boolean) => {
-    try {
-      const result = await authService.setBiometricEnabled(enabled);
-      if (result.success) {
-        await loadSettings();
-      } else {
-        Alert.alert('Error', result.error || 'Failed to update biometric setting');
-      }
-    } catch (error) {
-      console.error('Failed to toggle biometric:', error);
-      Alert.alert('Error', 'Failed to update biometric setting');
-    }
-  }, [authService, loadSettings]);
 
   const handleChangePin = useCallback(() => {
     setCurrentPin('');
@@ -190,34 +180,36 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
   }, []);
 
   const confirmPinChange = useCallback(async () => {
-    if (newPin.length !== VAULT_CONFIG.PIN_LENGTH) {
-      Alert.alert('Invalid PIN', `PIN must be ${VAULT_CONFIG.PIN_LENGTH} digits`);
+    if (newPin.length !== VAULT_CONFIG.PIN_LENGTH || newPin !== confirmPin) {
       return;
     }
 
-    if (newPin !== confirmPin) {
-      Alert.alert('PIN Mismatch', 'New PIN and confirmation do not match');
-      return;
-    }
-
+    setIsLoading(true);
+    setLoadingMessage('Changing your PIN...');
+    
     try {
       const result = await authService.changePin(currentPin, newPin);
       if (result.success) {
         setShowPinDialog(false);
-        Alert.alert('Success', 'PIN changed successfully');
       } else {
         Alert.alert('Error', result.error || 'Failed to change PIN');
       }
     } catch (error) {
       console.error('Failed to change PIN:', error);
       Alert.alert('Error', 'Failed to change PIN');
+    } finally {
+      setIsLoading(false);
     }
   }, [currentPin, newPin, confirmPin, authService]);
 
   const handleExportData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadingMessage('Exporting vault data...');
+    
     try {
       const result = await mediaService.exportVaultData();
       if (result.success && result.data) {
+        setLoadingMessage('Preparing to share...');
         const shareOptions = {
           title: 'Vault Backup',
           message: 'Encrypted vault backup data',
@@ -231,6 +223,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
     } catch (error) {
       console.error('Failed to export data:', error);
       Alert.alert('Error', 'Failed to export data');
+    } finally {
+      setIsLoading(false);
     }
   }, [mediaService]);
 
@@ -240,6 +234,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
   }, []);
 
   const confirmResetVault = useCallback(async () => {
+    setShowConfirmDialog(false);
+    setIsLoading(true);
+    setLoadingMessage('Resetting vault...');
+    
     try {
       // This would reset all vault data - implement with caution
       const result = await authService.resetAuth();
@@ -253,6 +251,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
     } catch (error) {
       console.error('Failed to reset vault:', error);
       Alert.alert('Error', 'Failed to reset vault');
+    } finally {
+      setIsLoading(false);
     }
     setShowConfirmDialog(false);
   }, [authService, onLogout]);
@@ -323,17 +323,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={handleChangePin}
           />
           
-          {authState.biometricAvailable && (
-            <SettingItem
-              icon="fingerprint"
-              title="Biometric Authentication"
-              subtitle="Use fingerprint or face recognition"
-              showSwitch
-              showArrow={false}
-              switchValue={authState.biometricEnabled}
-              onSwitchChange={handleBiometricToggle}
-            />
-          )}
           
           <SettingItem
             icon="timer"
@@ -524,6 +513,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
       </Modal>
 
       {/* Confirm Dialog */}
+      <LoadingOverlay
+        visible={isLoading}
+        message={loadingMessage}
+        icon={loadingMessage.includes('Reset') ? 'delete-forever' : 
+              loadingMessage.includes('Export') ? 'cloud-upload' : 'security'}
+      />
+
       <ConfirmDialog
         visible={showConfirmDialog}
         title="Reset Vault"

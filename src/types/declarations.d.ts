@@ -1,7 +1,6 @@
 declare module '@react-native-async-storage/async-storage';
 declare module '@react-native-vector-icons/material-icons';
 declare module 'react-native-keychain';
-declare module 'react-native-biometrics';
 declare module 'react-native-image-picker';
 declare module 'react-native-fs';
 declare module 'react-native-permissions';

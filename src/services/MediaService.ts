@@ -59,7 +59,6 @@ export class MediaService {
       lastModified: Date.now(),
       settings: {
         autoLockTimeout: VAULT_CONFIG.DEFAULT_AUTO_LOCK_TIMEOUT,
-        biometricEnabled: false,
         trashRetentionDays: VAULT_CONFIG.DEFAULT_TRASH_RETENTION_DAYS,
         showThumbnails: true,
         gridSize: VAULT_CONFIG.DEFAULT_GRID_SIZE,
@@ -148,18 +147,51 @@ export class MediaService {
   }
 
   /**
+   * Check if a media item already exists in vault based on filename and size
+   */
+  private isDuplicate(mediaItem: MediaItem): boolean {
+    if (!mediaItem.filename || !mediaItem.fileSize) {
+      return false; // Can't determine if duplicate without filename and size
+    }
+
+    return this.vaultMetadata.items.some(existingItem => 
+      existingItem.originalName === mediaItem.filename &&
+      existingItem.size === mediaItem.fileSize &&
+      !existingItem.isDeleted
+    );
+  }
+
+  /**
+   * Filter out duplicate media items
+   */
+  private filterDuplicates(mediaItems: MediaItem[]): { unique: MediaItem[]; duplicates: MediaItem[] } {
+    const unique: MediaItem[] = [];
+    const duplicates: MediaItem[] = [];
+
+    for (const mediaItem of mediaItems) {
+      if (this.isDuplicate(mediaItem)) {
+        duplicates.push(mediaItem);
+      } else {
+        unique.push(mediaItem);
+      }
+    }
+
+    return { unique, duplicates };
+  }
+
+  /**
    * Import specific media items to vault
    */
   public async importMediaItems(
     mediaItems: MediaItem[],
     progressCallback?: (progress: ImportProgress) => void
-  ): Promise<{ success: boolean; imported: number; errors: string[] }> {
+  ): Promise<{ success: boolean; imported: number; errors: string[]; duplicatesSkipped: number }> {
     const errors: string[] = [];
     let importedCount = 0;
 
     try {
       if (mediaItems.length === 0) {
-        return { success: true, imported: 0, errors: [] };
+        return { success: true, imported: 0, errors: [], duplicatesSkipped: 0 };
       }
 
       // Check if user is authenticated and crypto service is ready
@@ -168,16 +200,33 @@ export class MediaService {
           success: false,
           imported: 0,
           errors: ['Authentication required. Please authenticate to import media.'],
+          duplicatesSkipped: 0,
         };
       }
 
-      // Process each selected media item
-      for (let i = 0; i < mediaItems.length; i++) {
-        const mediaItem = mediaItems[i];
+      // Filter out duplicates to save space
+      const { unique, duplicates } = this.filterDuplicates(mediaItems);
+      
+      if (duplicates.length > 0) {
+        console.log(`Skipping ${duplicates.length} duplicate items to save space`);
+      }
+
+      if (unique.length === 0) {
+        return {
+          success: true,
+          imported: 0,
+          errors: duplicates.length > 0 ? [`Skipped ${duplicates.length} duplicate items`] : [],
+          duplicatesSkipped: duplicates.length,
+        };
+      }
+
+      // Process each unique media item
+      for (let i = 0; i < unique.length; i++) {
+        const mediaItem = unique[i];
 
         progressCallback?.({
           current: i + 1,
-          total: mediaItems.length,
+          total: unique.length,
           currentFileName: mediaItem.filename || 'Unknown file',
           status: 'encrypting',
         });
@@ -204,16 +253,22 @@ export class MediaService {
       await this.saveMetadata();
 
       progressCallback?.({
-        current: mediaItems.length,
-        total: mediaItems.length,
+        current: unique.length,
+        total: unique.length,
         currentFileName: '',
         status: 'completed',
       });
+
+      // Add info about duplicates skipped
+      if (duplicates.length > 0) {
+        errors.push(`Skipped ${duplicates.length} duplicate items to save space`);
+      }
 
       return {
         success: true,
         imported: importedCount,
         errors,
+        duplicatesSkipped: duplicates.length,
       };
     } catch (error) {
       console.error('Import media items failed:', error);
@@ -221,6 +276,7 @@ export class MediaService {
         success: false,
         imported: importedCount,
         errors: [ERROR_MESSAGES.IMPORT_FAILED],
+        duplicatesSkipped: 0,
       };
     }
   }
@@ -301,9 +357,22 @@ export class MediaService {
       }
 
       console.log('ImportFromGallery - Processing', result.length, 'selected items');
-      console.log('ImportFromGallery - After image picker, cryptoService reference:', cryptoService);
-      console.log('ImportFromGallery - After image picker, master key set:', cryptoService.isMasterKeySet());
-      console.log('ImportFromGallery - After image picker, this.cryptoService master key set:', this.cryptoService.isMasterKeySet());
+      
+      // Filter out duplicates to save space
+      const { unique, duplicates } = this.filterDuplicates(result);
+      
+      if (duplicates.length > 0) {
+        console.log(`ImportFromGallery - Skipping ${duplicates.length} duplicate items to save space`);
+        errors.push(`Skipped ${duplicates.length} duplicate items to save space`);
+      }
+
+      if (unique.length === 0) {
+        return {
+          success: true,
+          imported: 0,
+          errors: duplicates.length > 0 ? [`All ${result.length} items were duplicates`] : [],
+        };
+      }
       
       // Check if master key was cleared during image picker operation
       if (!this.cryptoService.isMasterKeySet()) {
@@ -327,27 +396,19 @@ export class MediaService {
         console.log('ImportFromGallery - Master key restored, continuing with import...');
       }
       
-      // Process each selected media item
-      for (let i = 0; i < result.length; i++) {
-        const mediaItem = result[i];
+      // Process each unique media item
+      for (let i = 0; i < unique.length; i++) {
+        const mediaItem = unique[i];
 
         progressCallback?.({
           current: i + 1,
-          total: result.length,
+          total: unique.length,
           currentFileName: mediaItem.filename || 'Unknown file',
           status: 'encrypting',
         });
 
         try {
-          console.log(`ImportFromGallery - Processing item ${i + 1}/${result.length}: ${mediaItem.filename}`);
-          console.log('ImportFromGallery - Before import, stored cryptoService master key set:', cryptoService.isMasterKeySet());
-          console.log('ImportFromGallery - Before import, this.cryptoService master key set:', this.cryptoService.isMasterKeySet());
-          
-          // Get fresh CryptoService instance to see if it helps
-          const freshCryptoService = CryptoService.getInstance();
-          console.log('ImportFromGallery - Fresh CryptoService instance:', freshCryptoService);
-          console.log('ImportFromGallery - Fresh CryptoService master key set:', freshCryptoService.isMasterKeySet());
-          console.log('ImportFromGallery - Are instances same?', freshCryptoService === cryptoService, freshCryptoService === this.cryptoService);
+          console.log(`ImportFromGallery - Processing item ${i + 1}/${unique.length}: ${mediaItem.filename}`);
           
           const importResult = await this.importSingleMedia(mediaItem);
           console.log(`ImportFromGallery - Import result for ${mediaItem.filename}:`, importResult);

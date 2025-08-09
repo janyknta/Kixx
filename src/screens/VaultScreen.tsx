@@ -10,18 +10,18 @@ import {
   Alert,
   RefreshControl,
   StatusBar,
-  Dimensions,
 } from 'react-native';
 import Icon from "@react-native-vector-icons/material-icons";
 
 import { MediaService } from '../services/MediaService';
 import { AuthService } from '../services/AuthService';
 import { VaultItem } from '../types';
-import { COLORS, GRID_SIZES } from '../utils/constants';
+import { COLORS } from '../utils/constants';
 import { logDebug, logInfo, logError } from '../services/Logger';
 import MediaGrid from '../components/MediaGrid';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 interface VaultScreenProps {
   onLogout: () => void;
@@ -34,9 +34,10 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{current: number, total: number, filename?: string} | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   
   const [mediaService] = useState(() => MediaService.getInstance());
@@ -121,79 +122,79 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
 
 
   const handleImportPress = useCallback(async () => {
+    // Start loading immediately
+    setIsImporting(true);
+    setImportProgress(null);
+
     try {
       // Always ensure master key is available before importing
       const { CryptoService } = require('../services/CryptoService');
       const cryptoService = CryptoService.getInstance();
       
       logDebug('VaultScreen', 'Checking master key status');
-      logDebug('VaultScreen', 'Auth service state', authService.getAuthState());
-      logDebug('VaultScreen', 'Is session valid', { valid: authService.isSessionValid() });
-      logDebug('VaultScreen', 'Is master key set', { set: cryptoService.isMasterKeySet() });
       
-      // If master key is not set, try to restore it
+      // If master key is not set, try to restore it silently
       if (!cryptoService.isMasterKeySet()) {
         logInfo('VaultScreen', 'Master key not set, attempting to restore');
+        
+        // Update progress to show authentication is happening
+        setImportProgress({
+          current: 0,
+          total: 1,
+          filename: 'Preparing vault access...',
+        });
         
         const restoreResult = await authService.restoreMasterKey();
         logDebug('VaultScreen', 'Restore result', restoreResult);
         
         if (!restoreResult.success) {
-          // If restore fails, force re-authentication
-          Alert.alert(
-            'Authentication Required', 
-            `Session expired. ${restoreResult.error || 'Please authenticate again.'}`,
-            [
-              {
-                text: 'OK',
-                onPress: onLogout,
-              },
-            ]
-          );
+          // If restore fails, show error but don't logout
+          Alert.alert('Import Failed', 'Session expired. Please try again.');
           return;
         }
       }
       
       // Double-check that master key is now set
       if (!cryptoService.isMasterKeySet()) {
-        throw new Error('Master key could not be restored');
+        Alert.alert('Import Failed', 'Unable to access vault. Please try again.');
+        return;
       }
       
       logInfo('VaultScreen', 'Master key confirmed - proceeding with import');
       
+      // Reset progress for actual import
+      setImportProgress(null);
+      
       // Direct import using image picker
       const result = await mediaService.importFromGallery((progress) => {
-        // You could show a progress indicator here if needed
         logDebug('VaultScreen', 'Import progress', { current: progress.current, total: progress.total, file: progress.currentFileName });
+        setImportProgress({
+          current: progress.current,
+          total: progress.total,
+          filename: progress.currentFileName,
+        });
       });
 
       if (result.success) {
-        // Only show alert if something was actually imported
-        if (result.imported > 0) {
-          Alert.alert(
-            'Import Complete',
-            `Successfully imported ${result.imported} item${result.imported !== 1 ? 's' : ''}${
-              result.errors.length > 0 ? ` with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : ''
-            }.`,
-            [{ text: 'OK' }]
-          );
-        }
         // Refresh the vault items if anything was imported
         if (result.imported > 0) {
           await loadVaultItems();
         }
       } else {
-        // Show detailed error messages if import failed
-        const errorMessage = result.errors.length > 0 
-          ? `Failed to import media items:\n${result.errors.join('\n')}`
-          : 'Failed to import media items.';
-        Alert.alert('Import Failed', errorMessage);
+        // Only show error if there are actual import errors (not user cancellation)
+        if (result.errors.length > 0 && !result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
+          const errorMessage = result.errors.join('\n');
+          Alert.alert('Import Failed', errorMessage);
+        }
       }
     } catch (error) {
       logError('VaultScreen', 'Import failed', error);
-      Alert.alert('Import Failed', `An error occurred during import: ${error.message || error}`);
+      Alert.alert('Import Failed', `An error occurred during import: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsImporting(false);
+      setImportProgress(null);
     }
-  }, [onLogout, mediaService, loadVaultItems, authService]);
+  }, [mediaService, loadVaultItems, authService]);
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -247,7 +248,6 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
               const result = await mediaService.batchMoveToTrash(itemIds);
               
               if (result.success) {
-                Alert.alert('Success', `Moved ${result.processed} items to trash`);
                 await loadVaultItems();
                 setSelectedItems(new Set());
                 setIsSelectionMode(false);
@@ -268,15 +268,8 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   }, [selectedItems, mediaService, loadVaultItems]);
 
   const getFilteredItems = useCallback(() => {
-    let filtered = vaultItems;
-    
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = mediaService.searchItems(query);
-    }
-    
-    return filtered;
-  }, [vaultItems, searchQuery, mediaService]);
+    return vaultItems;
+  }, [vaultItems]);
 
   const handleViewerStateChange = useCallback((isOpen: boolean) => {
     setIsViewerOpen(isOpen);
@@ -382,6 +375,26 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         )}
         
         {!isSelectionMode && !isViewerOpen && renderFAB()}
+        
+        <LoadingOverlay
+          visible={isLoading}
+          message="Loading your vault..."
+          icon="folder-special"
+        />
+        
+        <LoadingOverlay
+          visible={isImporting}
+          message={importProgress?.filename === 'Preparing vault access...' 
+            ? "Preparing vault access..." 
+            : "Importing media to vault..."}
+          progress={importProgress ? {
+            current: importProgress.current,
+            total: importProgress.total,
+            filename: importProgress.filename,
+          } : undefined}
+          type="progress"
+          icon={importProgress?.filename === 'Preparing vault access...' ? "security" : "download"}
+        />
       </View>
     );
   };
@@ -407,7 +420,6 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   }
 };
 
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
