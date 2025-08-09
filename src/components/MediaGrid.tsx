@@ -6,23 +6,23 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
   Dimensions,
   Image,
   RefreshControl,
   Alert,
   RefreshControlProps,
   ActivityIndicator,
-  ScrollView,
 } from 'react-native';
 import Icon from "@react-native-vector-icons/material-icons";
 import { BlurView } from '@react-native-community/blur';
+import { FlashList } from '@shopify/flash-list';
 
 import { VaultItem } from '../types';
 import { COLORS, GRID_SIZES } from '../utils/constants';
 import { MediaService } from '../services/MediaService';
 import { logDebug, logError } from '../services/Logger';
 import MediaViewer from './MediaViewer';
+import { useTheme } from '../contexts/ThemeContext';
 interface MediaGridProps {
   items: VaultItem[];
   selectedItems: Set<string>;
@@ -43,6 +43,7 @@ interface GridItemProps {
   onLongPress: () => void;
   onPress: () => void;
   itemSize: number;
+  colors: any;
 }
 
 const GridItem: React.FC<GridItemProps> = ({
@@ -53,6 +54,7 @@ const GridItem: React.FC<GridItemProps> = ({
   onLongPress,
   onPress,
   itemSize,
+  colors,
 }) => {
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,8 +123,8 @@ const GridItem: React.FC<GridItemProps> = ({
     <TouchableOpacity
       style={[
         styles.gridItem,
-        { width: itemSize, height: itemSize },
-        isSelected && styles.gridItemSelected,
+        { width: itemSize, height: itemSize, backgroundColor: colors.vaultSurface },
+        isSelected && { borderColor: colors.vaultAccent },
       ]}
       onPress={isSelectionMode ? onSelect : onPress}
       onLongPress={onLongPress}
@@ -139,14 +141,14 @@ const GridItem: React.FC<GridItemProps> = ({
             }}
           />
         ) : (
-          <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
+          <View style={[styles.thumbnail, styles.placeholderThumbnail, { backgroundColor: colors.vaultSurface }]}>
             {isLoading ? (
-              <ActivityIndicator size="small" color={COLORS.textSecondary} />
+              <ActivityIndicator size="small" color={colors.textSecondary} />
             ) : (
               <Icon
                 name={item.type === 'video' ? 'videocam' : 'photo'}
                 size={32}
-                color={COLORS.textSecondary}
+                color={colors.textSecondary}
               />
             )}
           </View>
@@ -155,17 +157,17 @@ const GridItem: React.FC<GridItemProps> = ({
         {/* Video duration overlay */}
         {item.type === 'video' && (
           <View style={styles.durationOverlay}>
-            <Icon name="play-circle-filled" size={16} color={COLORS.surface} />
-            <Text style={styles.durationText}>Video</Text>
+            <Icon name="play-circle-filled" size={16} color={colors.surface} />
+            <Text style={[styles.durationText, { color: colors.surface }]}>Video</Text>
           </View>
         )}
         
         {/* Selection overlay */}
         {isSelectionMode && (
           <BlurView style={styles.selectionOverlay} blurType="dark" blurAmount={10}>
-            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+            <View style={[styles.checkbox, { borderColor: colors.surface }, isSelected && { backgroundColor: colors.vaultAccent, borderColor: colors.vaultAccent }]}>
               {isSelected && (
-                <Icon name="check" size={16} color={COLORS.surface} />
+                <Icon name="check" size={16} color={colors.surface} />
               )}
             </View>
           </BlurView>
@@ -176,10 +178,10 @@ const GridItem: React.FC<GridItemProps> = ({
         
         {/* Item info */}
         <View style={styles.itemInfo}>
-          <Text style={styles.itemName} numberOfLines={1}>
+          <Text style={[styles.itemName, { color: colors.surface }]} numberOfLines={1}>
             {item.originalName}
           </Text>
-          <Text style={styles.itemDetails}>
+          <Text style={[styles.itemDetails, { color: colors.surface }]}>
             {formatFileSize(item.size)} • {formatDate(item.dateAdded)}
           </Text>
         </View>
@@ -199,6 +201,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   gridSize = 'medium',
   onViewerStateChange,
 }) => {
+  const { colors } = useTheme();
   const [viewerItem, setViewerItem] = useState<VaultItem | null>(null);
   const [mediaService] = useState(() => MediaService.getInstance());
 
@@ -218,46 +221,82 @@ const MediaGrid: React.FC<MediaGridProps> = ({
     onViewerStateChange?.(false);
   }, [onViewerStateChange]);
 
+  // Create rows of items for FlashList
+  const createRows = useCallback(() => {
+    const rows: VaultItem[][] = [];
+    for (let i = 0; i < items.length; i += columns) {
+      rows.push(items.slice(i, i + columns));
+    }
+    return rows;
+  }, [items, columns]);
 
+  const renderRow = useCallback(({ item: row }: { item: VaultItem[] }) => (
+    <View style={[styles.row, { paddingHorizontal: spacing / 2 }]}>
+      {row.map((item, index) => (
+        <View
+          key={item.id}
+          style={[
+            styles.gridItemWrapper,
+            { 
+              width: itemSize, 
+              marginHorizontal: spacing / 2,
+              marginRight: index === row.length - 1 && row.length < columns ? 'auto' : spacing / 2
+            }
+          ]}
+        >
+          <GridItem
+            item={item}
+            isSelected={selectedItems.has(item.id)}
+            isSelectionMode={isSelectionMode}
+            onSelect={() => onItemSelect(item.id)}
+            onLongPress={() => onItemLongPress(item.id)}
+            onPress={() => handleItemPress(item)}
+            itemSize={itemSize}
+            colors={colors}
+          />
+        </View>
+      ))}
+      {/* Fill empty slots in the last row */}
+      {row.length < columns && Array.from({ length: columns - row.length }).map((_, index) => (
+        <View
+          key={`empty-${index}`}
+          style={[
+            styles.gridItemWrapper,
+            { width: itemSize, marginHorizontal: spacing / 2 }
+          ]}
+        />
+      ))}
+    </View>
+  ), [itemSize, spacing, columns, selectedItems, isSelectionMode, onItemSelect, onItemLongPress, handleItemPress, colors]);
+
+  const getItemType = useCallback(() => {
+    return 'row';
+  }, []);
 
   if (items.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Icon name="photo-library" size={64} color={COLORS.textSecondary} />
-        <Text style={styles.emptyText}>No items to display</Text>
+        <Icon name="photo-library" size={64} color={colors.textSecondary} />
+        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No items to display</Text>
       </View>
     );
   }
 
+  const rows = createRows();
+
   return (
     <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={[styles.grid, { padding: spacing }]}
+      <FlashList
+        data={rows}
+        renderItem={renderRow}
+        getItemType={getItemType}
+        estimatedItemSize={itemSize + spacing}
+        contentContainerStyle={[styles.flashListContent, { paddingBottom: 100 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl}
-      >
-        <View style={[styles.gridContainer, { marginHorizontal: -spacing / 2 }]}>
-          {items.map((item) => (
-            <View
-              key={item.id}
-              style={[
-                styles.gridItemWrapper,
-                { width: itemSize, marginHorizontal: spacing / 2, marginBottom: spacing }
-              ]}
-            >
-              <GridItem
-                item={item}
-                isSelected={selectedItems.has(item.id)}
-                isSelectionMode={isSelectionMode}
-                onSelect={() => onItemSelect(item.id)}
-                onLongPress={() => onItemLongPress(item.id)}
-                onPress={() => handleItemPress(item)}
-                itemSize={itemSize}
-              />
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+        keyExtractor={(item, index) => `row-${index}`}
+        ItemSeparatorComponent={() => <View style={{ height: spacing }} />}
+      />
       
       {viewerItem && (
         <MediaViewer
@@ -275,12 +314,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  grid: {
-    paddingBottom: 100, // Space for FAB
+  flashListContent: {
+    paddingTop: 16,
   },
-  gridContainer: {
+  row: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'flex-start',
   },
   gridItemWrapper: {
