@@ -13,6 +13,7 @@ import {
   Alert,
   RefreshControlProps,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import Icon from "@react-native-vector-icons/material-icons";
 import { BlurView } from '@react-native-community/blur';
@@ -217,32 +218,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
     onViewerStateChange?.(false);
   }, [onViewerStateChange]);
 
-  const renderItem = useCallback(({ item }: { item: VaultItem }) => (
-    <GridItem
-      item={item}
-      isSelected={selectedItems.has(item.id)}
-      isSelectionMode={isSelectionMode}
-      onSelect={() => onItemSelect(item.id)}
-      onLongPress={() => onItemLongPress(item.id)}
-      onPress={() => handleItemPress(item)}
-      itemSize={itemSize}
-    />
-  ), [
-    selectedItems,
-    isSelectionMode,
-    onItemSelect,
-    onItemLongPress,
-    handleItemPress,
-    itemSize,
-  ]);
 
-  const keyExtractor = useCallback((item: VaultItem) => item.id, []);
-
-  const getItemLayout = useCallback((data: any, index: number) => ({
-    length: itemSize,
-    offset: itemSize * index,
-    index,
-  }), [itemSize]);
 
   if (items.length === 0) {
     return (
@@ -255,21 +231,33 @@ const MediaGrid: React.FC<MediaGridProps> = ({
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={items}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        numColumns={columns}
+      <ScrollView
         contentContainerStyle={[styles.grid, { padding: spacing }]}
-        columnWrapperStyle={columns > 1 ? styles.row : undefined}
         showsVerticalScrollIndicator={false}
-        getItemLayout={getItemLayout}
         refreshControl={refreshControl}
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={20}
-        windowSize={10}
-        initialNumToRender={20}
-      />
+      >
+        <View style={[styles.gridContainer, { marginHorizontal: -spacing / 2 }]}>
+          {items.map((item) => (
+            <View
+              key={item.id}
+              style={[
+                styles.gridItemWrapper,
+                { width: itemSize, marginHorizontal: spacing / 2, marginBottom: spacing }
+              ]}
+            >
+              <GridItem
+                item={item}
+                isSelected={selectedItems.has(item.id)}
+                isSelectionMode={isSelectionMode}
+                onSelect={() => onItemSelect(item.id)}
+                onLongPress={() => onItemLongPress(item.id)}
+                onPress={() => handleItemPress(item)}
+                itemSize={itemSize}
+              />
+            </View>
+          ))}
+        </View>
+      </ScrollView>
       
       {viewerItem && (
         <MediaViewer
@@ -290,11 +278,15 @@ const styles = StyleSheet.create({
   grid: {
     paddingBottom: 100, // Space for FAB
   },
-  row: {
-    justifyContent: 'space-between',
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  },
+  gridItemWrapper: {
+    // Dynamic width and margins are set inline
   },
   gridItem: {
-    marginBottom: GRID_SIZES.medium.spacing,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: COLORS.vaultSurface,

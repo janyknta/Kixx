@@ -1,7 +1,3 @@
-// src/services/Logger.ts
-
-declare var __DEV__: boolean;
-
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -20,7 +16,7 @@ export interface LogEntry {
 
 class LoggerService {
   private static instance: LoggerService;
-  private logLevel: LogLevel = (typeof __DEV__ !== 'undefined' && __DEV__) ? LogLevel.DEBUG : LogLevel.ERROR;
+  private logLevel: LogLevel = __DEV__ ? LogLevel.DEBUG : LogLevel.ERROR;
   private logs: LogEntry[] = [];
   private maxLogs: number = 1000; // Keep last 1000 logs in memory
 
@@ -81,7 +77,7 @@ class LoggerService {
       level,
       category,
       message,
-      data: this.sanitizeData(data),
+      data,
     };
 
     // Add to memory logs
@@ -91,7 +87,7 @@ class LoggerService {
     }
 
     // Only output to console in development
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    if (__DEV__) {
       const timestamp = new Date(logEntry.timestamp).toISOString();
       const levelStr = LogLevel[level];
       const prefix = `[${timestamp}] [${levelStr}] [${category}]`;
@@ -110,28 +106,6 @@ class LoggerService {
           console.error(`${prefix} ${message}`, data || '');
           break;
       }
-    }
-  }
-
-  /**
-   * Sanitize data to remove sensitive information
-   */
-  private sanitizeData(data: any): any {
-    if (!data) return data;
-
-    try {
-      const dataStr = JSON.stringify(data);
-      // Remove potential sensitive data patterns
-      const sanitized = dataStr
-        .replace(/("masterKey"\s*:\s*")[^"]*"/g, '$1[REDACTED]"')
-        .replace(/("password"\s*:\s*")[^"]*"/g, '$1[REDACTED]"')
-        .replace(/("pin"\s*:\s*")[^"]*"/g, '$1[REDACTED]"')
-        .replace(/("key"\s*:\s*")[^"]*"/g, '$1[REDACTED]"')
-        .replace(/("token"\s*:\s*")[^"]*"/g, '$1[REDACTED]"');
-      
-      return JSON.parse(sanitized);
-    } catch {
-      return '[INVALID_DATA]';
     }
   }
 
