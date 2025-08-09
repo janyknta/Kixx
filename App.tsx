@@ -21,8 +21,10 @@ import { SecurityManager } from './src/utils/SecurityManager';
 import { logDebug, logInfo, logWarn, logError } from './src/services/Logger';
 import { COLORS } from './src/utils/constants';
 import AuthScreen from './src/components/AuthScreen';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { colors } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [authService] = useState(() => AuthService.getInstance());
@@ -177,22 +179,30 @@ const App: React.FC = () => {
   if (isInitializing) {
     // Show loading screen while initializing
     return (
-      <View style={styles.initializingContainer}>
-        <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
+      <View style={[styles.initializingContainer, { backgroundColor: colors.vaultBackground }]}>
+        <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
         {/* You can add a loading spinner or splash screen here */}
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
+    <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
+      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
       {isAuthenticated ? (
         <VaultScreen onLogout={handleLogout} />
       ) : (
         <AuthScreen onAuthenticated={handleAuthenticated} />
       )}
     </View>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 };
 

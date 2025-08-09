@@ -26,6 +26,7 @@ import { VaultSettings } from '../types';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
 import LoadingOverlay from '../components/LoadingOverlay';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -43,6 +44,7 @@ interface SettingItemProps {
   onPress?: () => void;
   onSwitchChange?: (value: boolean) => void;
   danger?: boolean;
+  colors?: any;
 }
 
 const SettingItem: React.FC<SettingItemProps> = ({
@@ -56,6 +58,7 @@ const SettingItem: React.FC<SettingItemProps> = ({
   onPress,
   onSwitchChange,
   danger = false,
+  colors = COLORS,
 }) => {
   const scaleValue = React.useRef(new Animated.Value(1)).current;
   
@@ -79,11 +82,11 @@ const SettingItem: React.FC<SettingItemProps> = ({
     }
   };
 
-  const iconColor = danger ? COLORS.danger : COLORS.vaultAccent;
-  const titleColor = danger ? COLORS.danger : COLORS.vaultText;
+  const iconColor = danger ? colors.danger : colors.vaultAccent;
+  const titleColor = danger ? colors.danger : colors.vaultText;
 
   return (
-    <Animated.View style={[styles.settingItem, animatedStyle]}>
+    <Animated.View style={[styles.settingItem, { backgroundColor: colors.vaultSurface }, animatedStyle]}>
       <TouchableOpacity
         style={styles.settingContent}
         onPress={handlePress}
@@ -96,21 +99,21 @@ const SettingItem: React.FC<SettingItemProps> = ({
         
         <View style={styles.settingDetails}>
           <Text style={[styles.settingTitle, { color: titleColor }]}>{title}</Text>
-          {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+          {subtitle && <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
         </View>
         
         <View style={styles.settingValue}>
-          {value && <Text style={styles.valueText}>{value}</Text>}
+          {value && <Text style={[styles.valueText, { color: colors.textSecondary }]}>{value}</Text>}
           {showSwitch && (
             <Switch
               value={switchValue}
               onValueChange={onSwitchChange}
-              trackColor={{ false: COLORS.border, true: `${COLORS.vaultAccent}50` }}
-              thumbColor={switchValue ? COLORS.vaultAccent : COLORS.textSecondary}
+              trackColor={{ false: colors.border, true: `${colors.vaultAccent}50` }}
+              thumbColor={switchValue ? colors.vaultAccent : colors.textSecondary}
             />
           )}
           {showArrow && !showSwitch && (
-            <Icon name="chevron-right" size={24} color={COLORS.textSecondary} />
+            <Icon name="chevron-right" size={24} color={colors.textSecondary} />
           )}
         </View>
       </TouchableOpacity>
@@ -119,6 +122,7 @@ const SettingItem: React.FC<SettingItemProps> = ({
 };
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => {
+  const { theme, colors, toggleTheme } = useTheme();
   const [settings, setSettings] = useState<VaultSettings | null>(null);
   const [vaultStats, setVaultStats] = useState<any>(null);
   const [showPinDialog, setShowPinDialog] = useState(false);
@@ -274,15 +278,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
   const authState = authService.getAuthState();
 
   return (
-    <View style={styles.container}>
-      <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
+    <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
+      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
       
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.vaultSurface }]}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Icon name="arrow-back" size={24} color={COLORS.vaultText} />
+          <Icon name="arrow-back" size={24} color={colors.vaultText} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.vaultText }]}>Settings</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -290,23 +294,23 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
         {/* Vault Stats */}
         {vaultStats && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Vault Overview</Text>
-            <View style={styles.statsContainer}>
+            <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>Vault Overview</Text>
+            <View style={[styles.statsContainer, { backgroundColor: colors.vaultSurface }]}>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{vaultStats.activeItems}</Text>
-                <Text style={styles.statLabel}>Items</Text>
+                <Text style={[styles.statNumber, { color: colors.vaultAccent }]}>{vaultStats.activeItems}</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{vaultStats.imageCount}</Text>
-                <Text style={styles.statLabel}>Photos</Text>
+                <Text style={[styles.statNumber, { color: colors.vaultAccent }]}>{vaultStats.imageCount}</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Photos</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{vaultStats.videoCount}</Text>
-                <Text style={styles.statLabel}>Videos</Text>
+                <Text style={[styles.statNumber, { color: colors.vaultAccent }]}>{vaultStats.videoCount}</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Videos</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{formatBytes(vaultStats.vaultSize)}</Text>
-                <Text style={styles.statLabel}>Storage</Text>
+                <Text style={[styles.statNumber, { color: colors.vaultAccent }]}>{formatBytes(vaultStats.vaultSize)}</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Storage</Text>
               </View>
             </View>
           </View>
@@ -314,13 +318,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
 
         {/* Security Settings */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Security</Text>
+          <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>Security</Text>
           
           <SettingItem
             icon="lock"
             title="Change PIN"
             subtitle="Update your vault access PIN"
             onPress={handleChangePin}
+            colors={colors}
           />
           
           
@@ -333,12 +338,24 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
               // This would open a time picker - simplified for now
               Alert.alert('Auto-lock Timeout', 'Feature coming soon');
             }}
+            colors={colors}
           />
         </View>
 
         {/* Display Settings */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Display</Text>
+          <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>Display</Text>
+          
+          <SettingItem
+            icon={theme === 'light' ? 'light-mode' : 'dark-mode'}
+            title="Theme"
+            subtitle="Choose light or dark mode"
+            showSwitch
+            showArrow={false}
+            switchValue={theme === 'dark'}
+            onSwitchChange={toggleTheme}
+            colors={colors}
+          />
           
           <SettingItem
             icon="grid-view"
@@ -348,6 +365,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={() => {
               Alert.alert('Grid Size', 'Feature coming soon');
             }}
+            colors={colors}
           />
           
           <SettingItem
@@ -358,12 +376,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             showArrow={false}
             switchValue={settings?.showThumbnails || true}
             onSwitchChange={(value) => updateSetting('showThumbnails', value)}
+            colors={colors}
           />
         </View>
 
         {/* Storage Settings */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Storage</Text>
+          <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>Storage</Text>
           
           <SettingItem
             icon="delete-sweep"
@@ -373,6 +392,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={() => {
               Alert.alert('Trash Retention', 'Feature coming soon');
             }}
+            colors={colors}
           />
           
           <SettingItem
@@ -383,18 +403,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
               fileService.cleanupTempFiles();
               Alert.alert('Success', 'Cache cleaned successfully');
             }}
+            colors={colors}
           />
         </View>
 
         {/* Data Management */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Data Management</Text>
+          <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>Data Management</Text>
           
           <SettingItem
             icon="file-upload"
             title="Export Backup"
             subtitle="Create encrypted backup of vault data"
             onPress={handleExportData}
+            colors={colors}
           />
           
           <SettingItem
@@ -404,12 +426,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={() => {
               Alert.alert('Import Backup', 'Feature coming soon');
             }}
+            colors={colors}
           />
         </View>
 
         {/* Danger Zone */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: COLORS.danger }]}>Danger Zone</Text>
+          <Text style={[styles.sectionTitle, { color: colors.danger }]}>Danger Zone</Text>
           
           <SettingItem
             icon="logout"
@@ -418,6 +441,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={onLogout}
             danger
             showArrow
+            colors={colors}
           />
           
           <SettingItem
@@ -427,13 +451,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             onPress={handleResetVault}
             danger
             showArrow
+            colors={colors}
           />
         </View>
 
         {/* App Info */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <Text style={styles.appInfo}>
+          <Text style={[styles.sectionTitle, { color: colors.vaultText }]}>About</Text>
+          <Text style={[styles.appInfo, { backgroundColor: colors.vaultSurface, color: colors.textSecondary }]}>
             Vault App v1.0.0{'\n'}
             Secure media storage with end-to-end encryption
           </Text>
@@ -447,65 +472,65 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
         animationType="fade"
         onRequestClose={() => setShowPinDialog(false)}
       >
-        <BlurView style={styles.modalOverlay} blurType="dark" blurAmount={10}>
-          <View style={styles.pinDialog}>
-            <Text style={styles.dialogTitle}>Change PIN</Text>
+        <BlurView style={styles.modalOverlay} blurType={theme === 'dark' ? 'dark' : 'light'} blurAmount={10}>
+          <View style={[styles.pinDialog, { backgroundColor: colors.vaultSurface }]}>
+            <Text style={[styles.dialogTitle, { color: colors.vaultText }]}>Change PIN</Text>
             
             <View style={styles.pinInputContainer}>
-              <Text style={styles.pinInputLabel}>Current PIN</Text>
+              <Text style={[styles.pinInputLabel, { color: colors.vaultText }]}>Current PIN</Text>
               <TextInput
-                style={styles.pinInput}
+                style={[styles.pinInput, { backgroundColor: colors.vaultBackground, borderColor: colors.border, color: colors.vaultText }]}
                 value={currentPin}
                 onChangeText={setCurrentPin}
                 keyboardType="numeric"
                 maxLength={VAULT_CONFIG.PIN_LENGTH}
                 secureTextEntry
                 placeholder="Enter current PIN"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
             
             <View style={styles.pinInputContainer}>
-              <Text style={styles.pinInputLabel}>New PIN</Text>
+              <Text style={[styles.pinInputLabel, { color: colors.vaultText }]}>New PIN</Text>
               <TextInput
-                style={styles.pinInput}
+                style={[styles.pinInput, { backgroundColor: colors.vaultBackground, borderColor: colors.border, color: colors.vaultText }]}
                 value={newPin}
                 onChangeText={setNewPin}
                 keyboardType="numeric"
                 maxLength={VAULT_CONFIG.PIN_LENGTH}
                 secureTextEntry
                 placeholder="Enter new PIN"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
             
             <View style={styles.pinInputContainer}>
-              <Text style={styles.pinInputLabel}>Confirm New PIN</Text>
+              <Text style={[styles.pinInputLabel, { color: colors.vaultText }]}>Confirm New PIN</Text>
               <TextInput
-                style={styles.pinInput}
+                style={[styles.pinInput, { backgroundColor: colors.vaultBackground, borderColor: colors.border, color: colors.vaultText }]}
                 value={confirmPin}
                 onChangeText={setConfirmPin}
                 keyboardType="numeric"
                 maxLength={VAULT_CONFIG.PIN_LENGTH}
                 secureTextEntry
                 placeholder="Confirm new PIN"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
             
             <View style={styles.dialogButtons}>
               <TouchableOpacity
-                style={[styles.dialogButton, styles.cancelButton]}
+                style={[styles.dialogButton, styles.cancelButton, { borderColor: colors.border }]}
                 onPress={() => setShowPinDialog(false)}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.dialogButton, styles.confirmButton]}
+                style={[styles.dialogButton, styles.confirmButton, { backgroundColor: colors.vaultAccent }]}
                 onPress={confirmPinChange}
               >
-                <Text style={styles.confirmButtonText}>Change PIN</Text>
+                <Text style={[styles.confirmButtonText, { color: colors.surface }]}>Change PIN</Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -12,6 +12,7 @@ import { BlurView } from '@react-native-community/blur';
 import Icon from "@react-native-vector-icons/material-icons";
 
 import { COLORS } from '../utils/constants';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -34,6 +35,7 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   icon,
   onRequestClose,
 }) => {
+  const { colors, theme } = useTheme();
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const scaleAnim = React.useRef(new Animated.Value(0.8)).current;
 
@@ -96,11 +98,12 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
         },
       ]}
     >
-      <BlurView style={styles.blurView} blurType="dark" blurAmount={10}>
+      <BlurView style={styles.blurView} blurType={theme === 'dark' ? 'dark' : 'light'} blurAmount={10}>
         <Animated.View 
           style={[
             styles.container,
             {
+              backgroundColor: colors.vaultSurface,
               transform: [{ scale: scaleAnim }],
             },
           ]}
@@ -108,26 +111,26 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
           {/* Icon or Spinner */}
           <View style={styles.iconContainer}>
             {icon ? (
-              <View style={styles.customIconContainer}>
-                <Icon name={icon} size={32} color={COLORS.vaultAccent} />
+              <View style={[styles.customIconContainer, { backgroundColor: `${colors.vaultAccent}20` }]}>
+                <Icon name={icon} size={32} color={colors.vaultAccent} />
               </View>
             ) : (
-              <ActivityIndicator size="large" color={COLORS.vaultAccent} />
+              <ActivityIndicator size="large" color={colors.vaultAccent} />
             )}
           </View>
 
           {/* Message */}
-          <Text style={styles.message}>{getLoadingMessage()}</Text>
+          <Text style={[styles.message, { color: colors.vaultText }]}>{getLoadingMessage()}</Text>
 
           {/* Progress Information */}
           {progress && (
             <View style={styles.progressInfo}>
-              <Text style={styles.progressText}>
+              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
                 {progress.current} of {progress.total}
               </Text>
               
               {progress.filename && (
-                <Text style={styles.filename} numberOfLines={1}>
+                <Text style={[styles.filename, { color: colors.textSecondary }]} numberOfLines={1}>
                   {progress.filename}
                 </Text>
               )}
@@ -135,15 +138,18 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
               {/* Progress Bar */}
               {type === 'progress' && (
                 <View style={styles.progressBarContainer}>
-                  <View style={styles.progressBar}>
+                  <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
                     <Animated.View
                       style={[
                         styles.progressBarFill,
-                        { width: `${getProgressPercentage()}%` },
+                        { 
+                          width: `${getProgressPercentage()}%`,
+                          backgroundColor: colors.vaultAccent 
+                        },
                       ]}
                     />
                   </View>
-                  <Text style={styles.percentageText}>
+                  <Text style={[styles.percentageText, { color: colors.textSecondary }]}>
                     {getProgressPercentage()}%
                   </Text>
                 </View>
@@ -154,9 +160,9 @@ const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
           {/* Subtle pulse animation for spinner */}
           {!progress && (
             <View style={styles.pulseContainer}>
-              <View style={[styles.pulse, styles.pulse1]} />
-              <View style={[styles.pulse, styles.pulse2]} />
-              <View style={[styles.pulse, styles.pulse3]} />
+              <View style={[styles.pulse, styles.pulse1, { backgroundColor: `${colors.vaultAccent}30` }]} />
+              <View style={[styles.pulse, styles.pulse2, { backgroundColor: `${colors.vaultAccent}30` }]} />
+              <View style={[styles.pulse, styles.pulse3, { backgroundColor: `${colors.vaultAccent}30` }]} />
             </View>
           )}
         </Animated.View>

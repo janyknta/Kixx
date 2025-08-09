@@ -20,6 +20,7 @@ import { VaultItem } from '../types';
 import { COLORS } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
 import LoadingOverlay from '../components/LoadingOverlay';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface TrashScreenProps {
   onBack: () => void;
@@ -33,6 +34,7 @@ interface TrashItemProps {
   onRestore: () => void;
   onDelete: () => void;
   isSelectionMode: boolean;
+  colors: any;
 }
 
 const TrashItem: React.FC<TrashItemProps> = ({
@@ -42,6 +44,7 @@ const TrashItem: React.FC<TrashItemProps> = ({
   onRestore,
   onDelete,
   isSelectionMode,
+  colors,
 }) => {
   const scaleValue = React.useRef(new Animated.Value(1)).current;
   const slideValue = React.useRef(new Animated.Value(0)).current;
@@ -116,7 +119,7 @@ const TrashItem: React.FC<TrashItemProps> = ({
   const isExpiringSoon = daysInTrash >= 25; // Warning when close to 30-day limit
 
   return (
-    <Animated.View style={[styles.trashItem, animatedStyle]}>
+    <Animated.View style={[styles.trashItem, { backgroundColor: colors.vaultSurface }, animatedStyle]}>
       <TouchableOpacity
         style={styles.itemContent}
         onPress={handlePress}
@@ -124,8 +127,8 @@ const TrashItem: React.FC<TrashItemProps> = ({
       >
         {/* Selection indicator */}
         {isSelectionMode && (
-          <View style={[styles.selectionIndicator, isSelected && styles.selected]}>
-            {isSelected && <Icon name="check" size={16} color={COLORS.surface} />}
+          <View style={[styles.selectionIndicator, isSelected && { backgroundColor: colors.vaultAccent }]}>
+            {isSelected && <Icon name="check" size={16} color={colors.surface} />}
           </View>
         )}
 
@@ -134,20 +137,20 @@ const TrashItem: React.FC<TrashItemProps> = ({
           <Icon
             name={item.type === 'video' ? 'videocam' : 'photo'}
             size={24}
-            color={COLORS.vaultAccent}
+            color={colors.vaultAccent}
           />
         </View>
 
         {/* Item details */}
         <View style={styles.itemDetails}>
-          <Text style={styles.itemName} numberOfLines={1}>
+          <Text style={[styles.itemName, { color: colors.vaultText }]} numberOfLines={1}>
             {item.originalName}
           </Text>
-          <Text style={styles.itemInfo}>
+          <Text style={[styles.itemInfo, { color: colors.textSecondary }]}>
             {formatFileSize(item.size)} • {daysInTrash} day{daysInTrash !== 1 ? 's' : ''} in trash
           </Text>
           {isExpiringSoon && (
-            <Text style={styles.expirationWarning}>
+            <Text style={[styles.expirationWarning, { color: colors.warning }]}>
               Will be permanently deleted in {30 - daysInTrash} day{30 - daysInTrash !== 1 ? 's' : ''}
             </Text>
           )}
@@ -160,14 +163,14 @@ const TrashItem: React.FC<TrashItemProps> = ({
               style={[styles.actionButton, styles.restoreButton]}
               onPress={handleRestore}
             >
-              <Icon name="restore" size={20} color={COLORS.success} />
+              <Icon name="restore" size={20} color={colors.success} />
             </TouchableOpacity>
             
             <TouchableOpacity
               style={[styles.actionButton, styles.deleteButton]}
               onPress={handleDelete}
             >
-              <Icon name="delete-forever" size={20} color={COLORS.danger} />
+              <Icon name="delete-forever" size={20} color={colors.danger} />
             </TouchableOpacity>
           </View>
         )}
@@ -177,6 +180,7 @@ const TrashItem: React.FC<TrashItemProps> = ({
 };
 
 const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => {
+  const { colors } = useTheme();
   const [trashItems, setTrashItems] = useState<VaultItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -386,26 +390,27 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
       onSelect={() => handleItemSelect(item.id)}
       onRestore={() => handleSingleRestore(item.id)}
       onDelete={() => handleSingleDelete(item.id)}
+      colors={colors}
       isSelectionMode={isSelectionMode}
     />
-  ), [selectedItems, isSelectionMode, handleItemSelect, handleSingleRestore, handleSingleDelete]);
+  ), [selectedItems, isSelectionMode, handleItemSelect, handleSingleRestore, handleSingleDelete, colors]);
 
   const renderHeader = () => (
-    <View style={styles.header}>
+    <View style={[styles.header, { backgroundColor: colors.vaultSurface }]}>
       <View style={styles.headerTop}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Icon name="arrow-back" size={24} color={COLORS.vaultText} />
+          <Icon name="arrow-back" size={24} color={colors.vaultText} />
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>Trash</Text>
+        <Text style={[styles.headerTitle, { color: colors.vaultText }]}>Trash</Text>
         
         <TouchableOpacity style={styles.headerButton} onPress={handleEmptyTrash}>
-          <Text style={styles.emptyTrashText}>Empty</Text>
+          <Text style={[styles.emptyTrashText, { color: colors.danger }]}>Empty</Text>
         </TouchableOpacity>
       </View>
       
       <View style={styles.headerInfo}>
-        <Text style={styles.headerSubtitle}>
+        <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
           {trashItems.length} item{trashItems.length !== 1 ? 's' : ''} • Items are automatically deleted after 30 days
         </Text>
         
@@ -417,34 +422,34 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
               setSelectedItems(new Set());
             }}
           >
-            <Text style={styles.selectModeText}>Select</Text>
+            <Text style={[styles.selectModeText, { color: colors.vaultAccent }]}>Select</Text>
           </TouchableOpacity>
         )}
       </View>
       
       {isSelectionMode && (
-        <View style={styles.selectionBar}>
-          <Text style={styles.selectionText}>
+        <View style={[styles.selectionBar, { borderTopColor: colors.border }]}>
+          <Text style={[styles.selectionText, { color: colors.vaultText }]}>
             {selectedItems.size} selected
           </Text>
           
           <View style={styles.selectionActions}>
             <TouchableOpacity onPress={handleSelectAll} style={styles.selectionButton}>
-              <Text style={styles.selectionButtonText}>All</Text>
+              <Text style={[styles.selectionButtonText, { color: colors.vaultAccent }]}>All</Text>
             </TouchableOpacity>
             
             <TouchableOpacity onPress={handleDeselectAll} style={styles.selectionButton}>
-              <Text style={styles.selectionButtonText}>None</Text>
+              <Text style={[styles.selectionButtonText, { color: colors.vaultAccent }]}>None</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity onPress={handleBatchRestore} style={styles.batchRestoreButton}>
-              <Icon name="restore" size={18} color={COLORS.surface} />
-              <Text style={styles.batchButtonText}>Restore</Text>
+            <TouchableOpacity onPress={handleBatchRestore} style={[styles.batchRestoreButton, { backgroundColor: colors.success }]}>
+              <Icon name="restore" size={18} color={colors.surface} />
+              <Text style={[styles.batchButtonText, { color: colors.surface }]}>Restore</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity onPress={handleBatchDelete} style={styles.batchDeleteButton}>
-              <Icon name="delete-forever" size={18} color={COLORS.surface} />
-              <Text style={styles.batchButtonText}>Delete</Text>
+            <TouchableOpacity onPress={handleBatchDelete} style={[styles.batchDeleteButton, { backgroundColor: colors.danger }]}>
+              <Icon name="delete-forever" size={18} color={colors.surface} />
+              <Text style={[styles.batchButtonText, { color: colors.surface }]}>Delete</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -454,9 +459,9 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Icon name="delete-outline" size={64} color={COLORS.textSecondary} />
-      <Text style={styles.emptyTitle}>Trash is empty</Text>
-      <Text style={styles.emptySubtitle}>
+      <Icon name="delete-outline" size={64} color={colors.textSecondary} />
+      <Text style={[styles.emptyTitle, { color: colors.vaultText }]}>Trash is empty</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         Deleted items will appear here and be automatically removed after 30 days
       </Text>
     </View>
@@ -486,8 +491,8 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
+    <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
+      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
       
       {renderHeader()}
       
@@ -504,7 +509,7 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor={COLORS.vaultAccent}
+              tintColor={colors.vaultAccent}
             />
           }
         />

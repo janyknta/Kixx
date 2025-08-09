@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Icon from "@react-native-vector-icons/material-icons";
 import { COLORS } from '../utils/constants';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface NumberPadProps {
   value: string;
@@ -26,6 +27,7 @@ const NumberPad: React.FC<NumberPadProps> = ({
   showDots = true,
   onComplete 
 }) => {
+  const { colors } = useTheme();
   const handleNumberPress = (num: string) => {
     if (value.length < maxLength) {
       const newValue = value + num;
@@ -45,11 +47,11 @@ const NumberPad: React.FC<NumberPadProps> = ({
   const renderNumber = (num: string) => (
     <TouchableOpacity
       key={num}
-      style={styles.numberButton}
+      style={[styles.numberButton, { backgroundColor: colors.vaultSurface }]}
       onPress={() => handleNumberPress(num)}
       activeOpacity={0.7}
     >
-      <Text style={styles.numberText}>{num}</Text>
+      <Text style={[styles.numberText, { color: colors.vaultText }]}>{num}</Text>
     </TouchableOpacity>
   );
 
@@ -60,7 +62,8 @@ const NumberPad: React.FC<NumberPadProps> = ({
           key={index}
           style={[
             styles.pinDot,
-            value.length > index && styles.pinDotFilled,
+            { borderColor: colors.textSecondary },
+            value.length > index && { backgroundColor: colors.vaultAccent, borderColor: colors.vaultAccent },
           ]}
         />
       ))}
@@ -94,11 +97,11 @@ const NumberPad: React.FC<NumberPadProps> = ({
           <View style={styles.emptyButton} />
           {renderNumber('0')}
           <TouchableOpacity
-            style={styles.backspaceButton}
+            style={[styles.backspaceButton, { backgroundColor: colors.vaultSurface }]}
             onPress={handleBackspace}
             activeOpacity={0.7}
           >
-            <Icon name="backspace" size={24} color={COLORS.vaultText} />
+            <Icon name="backspace" size={24} color={colors.vaultText} />
           </TouchableOpacity>
         </View>
       </View>

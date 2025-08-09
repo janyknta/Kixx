@@ -22,6 +22,7 @@ import MediaGrid from '../components/MediaGrid';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
 import LoadingOverlay from '../components/LoadingOverlay';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface VaultScreenProps {
   onLogout: () => void;
@@ -30,6 +31,7 @@ interface VaultScreenProps {
 type ScreenMode = 'vault' | 'settings' | 'trash';
 
 const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
+  const { colors } = useTheme();
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('vault');
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -279,39 +281,39 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     const stats = mediaService.getVaultStats();
     
     return (
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.vaultSurface }]}>
         <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Vault</Text>
+          <Text style={[styles.headerTitle, { color: colors.vaultText }]}>Vault</Text>
           <View style={styles.headerActions}>
             <TouchableOpacity
               style={styles.headerButton}
               onPress={() => setCurrentScreen('settings')}
             >
-              <Icon name="settings" size={24} color={COLORS.vaultText} />
+              <Icon name="settings" size={24} color={colors.vaultText} />
             </TouchableOpacity>
           </View>
         </View>
         
         <View style={styles.statsContainer}>
-          <Text style={styles.statsText}>
+          <Text style={[styles.statsText, { color: colors.textSecondary }]}>
             {stats.activeItems} items • {stats.imageCount} photos • {stats.videoCount} videos
           </Text>
         </View>
         
         {isSelectionMode && (
-          <View style={styles.selectionBar}>
-            <Text style={styles.selectionText}>
+          <View style={[styles.selectionBar, { borderTopColor: colors.border }]}>
+            <Text style={[styles.selectionText, { color: colors.vaultText }]}>
               {selectedItems.size} selected
             </Text>
             <View style={styles.selectionActions}>
               <TouchableOpacity onPress={handleSelectAll} style={styles.selectionButton}>
-                <Text style={styles.selectionButtonText}>All</Text>
+                <Text style={[styles.selectionButtonText, { color: colors.vaultAccent }]}>All</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleDeselectAll} style={styles.selectionButton}>
-                <Text style={styles.selectionButtonText}>None</Text>
+                <Text style={[styles.selectionButtonText, { color: colors.vaultAccent }]}>None</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleMoveToTrash} style={styles.deleteButton}>
-                <Icon name="delete" size={20} color={COLORS.surface} />
+              <TouchableOpacity onPress={handleMoveToTrash} style={[styles.deleteButton, { backgroundColor: colors.danger }]}>
+                <Icon name="delete" size={20} color={colors.surface} />
               </TouchableOpacity>
             </View>
           </View>
@@ -322,27 +324,27 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Icon name="photo-library" size={64} color={COLORS.textSecondary} />
-      <Text style={styles.emptyTitle}>Your vault is empty</Text>
-      <Text style={styles.emptySubtitle}>
+      <Icon name="photo-library" size={64} color={colors.textSecondary} />
+      <Text style={[styles.emptyTitle, { color: colors.vaultText }]}>Your vault is empty</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         Import photos and videos to get started
       </Text>
       <TouchableOpacity
-        style={styles.importButton}
+        style={[styles.importButton, { backgroundColor: colors.vaultAccent }]}
         onPress={handleImportPress}
       >
-        <Icon name="add" size={24} color={COLORS.surface} />
-        <Text style={styles.importButtonText}>Import Media</Text>
+        <Icon name="add" size={24} color={colors.surface} />
+        <Text style={[styles.importButtonText, { color: colors.surface }]}>Import Media</Text>
       </TouchableOpacity>
     </View>
   );
 
   const renderFAB = () => (
     <TouchableOpacity
-      style={styles.fab}
+      style={[styles.fab, { backgroundColor: colors.vaultAccent }]}
       onPress={handleImportPress}
     >
-      <Icon name="add" size={24} color={COLORS.surface} />
+      <Icon name="add" size={24} color={colors.surface} />
     </TouchableOpacity>
   );
 
@@ -350,7 +352,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     const filteredItems = getFilteredItems();
     
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
         {!isViewerOpen && renderHeader()}
         
         {filteredItems.length === 0 && !isLoading ? (
@@ -368,7 +370,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={handleRefresh}
-                tintColor={COLORS.vaultAccent}
+                tintColor={colors.vaultAccent}
               />
             }
           />

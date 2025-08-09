@@ -16,6 +16,7 @@ import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import NumberPad from './NumberPad';
 import CalculatorScreen from './CalculatorScreen';
 import LoadingOverlay from './LoadingOverlay';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -25,6 +26,7 @@ type AuthMode = 'setup' | 'login';
 type SetupStep = 'enter' | 'confirm';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
+  const { colors } = useTheme();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [setupStep, setSetupStep] = useState<SetupStep>('enter');
   const [pin, setPin] = useState('');
@@ -109,10 +111,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const renderSetupMode = () => {
     if (setupStep === 'confirm') {
       return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Confirm Your PIN</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title, { color: colors.vaultText }]}>Confirm Your PIN</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               Please enter your PIN again to confirm
             </Text>
           </View>
@@ -127,18 +129,18 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             <TouchableOpacity
               style={[
                 styles.button, 
-                styles.primaryButton,
-                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButton
+                { backgroundColor: colors.vaultAccent },
+                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && { backgroundColor: colors.textSecondary, opacity: 0.5 }
               ]}
               onPress={handleSetupPin}
               disabled={confirmPin.length !== VAULT_CONFIG.PIN_LENGTH}
             >
               <Text style={[
-                styles.buttonText,
-                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButtonText
+                { fontSize: 16, fontWeight: '600', color: colors.surface },
+                confirmPin.length !== VAULT_CONFIG.PIN_LENGTH && { opacity: 0.7 }
               ]}>
                 {isLoading ? (
-                  <ActivityIndicator color={COLORS.surface} size="small" />
+                  <ActivityIndicator color={colors.surface} size="small" />
                 ) : (
                   'Create Vault'
                 )}
@@ -146,14 +148,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={[styles.button, styles.secondaryButton]}
+              style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.vaultAccent }]}
               onPress={() => {
                 setSetupStep('enter');
                 setPin('');
                 setConfirmPin('');
               }}
             >
-              <Text style={styles.secondaryButtonText}>Start Over</Text>
+              <Text style={[{ fontSize: 16, fontWeight: '600', color: colors.vaultAccent }]}>Start Over</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -161,10 +163,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     }
 
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Setup Your Vault</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: colors.vaultText }]}>Setup Your Vault</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Create a {VAULT_CONFIG.PIN_LENGTH}-digit PIN to secure your vault
           </Text>
         </View>
@@ -179,8 +181,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           <TouchableOpacity
             style={[
               styles.button, 
-              styles.primaryButton,
-              pin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButton
+              { backgroundColor: colors.vaultAccent },
+              pin.length !== VAULT_CONFIG.PIN_LENGTH && { backgroundColor: colors.textSecondary, opacity: 0.5 }
             ]}
             onPress={() => {
               if (pin.length === VAULT_CONFIG.PIN_LENGTH) {
@@ -190,8 +192,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             disabled={pin.length !== VAULT_CONFIG.PIN_LENGTH}
           >
             <Text style={[
-              styles.buttonText,
-              pin.length !== VAULT_CONFIG.PIN_LENGTH && styles.disabledButtonText
+              { fontSize: 16, fontWeight: '600', color: colors.surface },
+              pin.length !== VAULT_CONFIG.PIN_LENGTH && { opacity: 0.7 }
             ]}>
               Continue
             </Text>
@@ -240,8 +242,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   return (
     <>
-      <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
-      <View style={styles.screen}>
+      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
+      <View style={[styles.screen, { backgroundColor: colors.vaultBackground }]}>
         {authMode === 'setup' && renderSetupMode()}
         {authMode === 'login' && renderLoginMode()}
         
