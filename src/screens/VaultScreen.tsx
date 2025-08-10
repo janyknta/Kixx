@@ -52,6 +52,20 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const handleShowImageDetails = useCallback(() => {
     setShowImageDetails(true);
   }, []);
+
+  const handleCloseImageOptions = useCallback(() => {
+  setShowImageOptions(false);
+  // Don't clear selectedImageItem yet - wait for details modal
+}, []);
+
+const handleCloseImageDetails = useCallback(() => {
+  setShowImageDetails(false);
+  // Clear selectedImageItem only when both modals are closed
+  setTimeout(() => {
+    setSelectedImageItem(null);
+  }, 300); // Wait for modal animation to complete
+}, []);
+
   
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('home');
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
@@ -621,22 +635,15 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
       <ImageOptionsModal
         visible={showImageOptions}
         item={selectedImageItem}
-        onClose={() => {
-          setShowImageOptions(false);
-          setSelectedImageItem(null);
-        }}
+        onClose={handleCloseImageOptions}
         onShowDetails={handleShowImageDetails}
         onDelete={handleDeleteFromModal}
       />
-      
-      {/* Image Details Modal */}
+
       <ImageDetailsModal
         visible={showImageDetails}
         item={selectedImageItem}
-        onClose={() => {
-          setShowImageDetails(false);
-          setSelectedImageItem(null);
-        }}
+        onClose={handleCloseImageDetails}
       />
     </View>
   );

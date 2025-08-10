@@ -11,7 +11,6 @@ import {
   Dimensions,
   StatusBar,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
 import Icon from "@react-native-vector-icons/material-icons";
 import { useTheme } from '../contexts/ThemeContext';
 import { VaultItem } from '../types';
@@ -84,19 +83,6 @@ const ImageOptionsModal: React.FC<ImageOptionsModalProps> = ({
     }
   }, [visible]);
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   if (!visible || !item) {
     return null;
   }
@@ -116,8 +102,9 @@ const ImageOptionsModal: React.FC<ImageOptionsModalProps> = ({
       label: 'Show Details',
       color: colors.info,
       onPress: () => {
-        onClose();
+        // Call onShowDetails first, then close modal
         onShowDetails();
+        setTimeout(() => onClose(), 100);
       }
     },
     {
@@ -141,66 +128,65 @@ const ImageOptionsModal: React.FC<ImageOptionsModalProps> = ({
     >
       <StatusBar backgroundColor="rgba(0,0,0,0.5)" barStyle="light-content" />
       
+      {/* Simple overlay with uniform background */}
       <Animated.View 
         style={[
           styles.overlay,
           {
             opacity: opacityAnim,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)', // Simple semi-transparent background
           }
         ]}
       >
-        <BlurView
-          style={styles.blurContainer}
-          blurType={theme === 'dark' ? 'dark' : 'light'}
-          blurAmount={20}
+        <TouchableOpacity 
+          style={styles.backdrop} 
+          activeOpacity={1} 
+          onPress={onClose}
+        />
+        
+        <Animated.View
+          style={[
+            styles.modalContainer,
+            {
+              backgroundColor: colors.vaultSurface,
+              transform: [
+                { scale: scaleAnim },
+                { translateY: slideAnim }
+              ],
+            },
+          ]}
         >
-          <TouchableOpacity 
-            style={styles.backdrop} 
-            activeOpacity={1} 
-            onPress={onClose}
-          />
-          
-          <Animated.View
-            style={[
-              styles.modalContainer,
-              {
-                backgroundColor: colors.vaultSurface,
-                transform: [
-                  { scale: scaleAnim },
-                  { translateY: slideAnim }
-                ],
-              },
-            ]}
-          >
-            {/* Header */}
-            <View style={styles.header}>
-              <Icon name={item.type === 'image' ? 'image' : 'videocam'} size={24} color={colors.vaultAccent} />
-              <Text style={[styles.title, { color: colors.vaultText }]} numberOfLines={1}>
-                {item.fileName}
-              </Text>
-            </View>
+          {/* Header */}
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Icon name={item.type === 'image' ? 'image' : 'videocam'} size={24} color={colors.vaultAccent} />
+            <Text style={[styles.title, { color: colors.vaultText }]} numberOfLines={1}>
+              {item.fileName}
+            </Text>
+          </View>
 
-            {/* Options */}
-            <View style={styles.optionsContainer}>
-              {options.map((option, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.option, { borderBottomColor: colors.border }]}
-                  onPress={option.onPress}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: `${option.color}15` }]}>
-                    <Icon name={option.icon} size={20} color={option.color} />
-                  </View>
-                  <Text style={[styles.optionLabel, { color: colors.vaultText }]}>
-                    {option.label}
-                  </Text>
-                  <Icon name="chevron-right" size={20} color={colors.textSecondary} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Animated.View>
-        </BlurView>
+          {/* Options */}
+          <View style={styles.optionsContainer}>
+            {options.map((option, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.option, 
+                  { borderBottomColor: index < options.length - 1 ? colors.border : 'transparent' }
+                ]}
+                onPress={option.onPress}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: `${option.color}15` }]}>
+                  <Icon name={option.icon} size={20} color={option.color} />
+                </View>
+                <Text style={[styles.optionLabel, { color: colors.vaultText }]}>
+                  {option.label}
+                </Text>
+                <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
       </Animated.View>
     </Modal>
   );
@@ -210,12 +196,6 @@ const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  blurContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -246,7 +226,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   title: {
     fontSize: 16,
@@ -263,7 +242,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
   },
   optionIcon: {
     width: 36,
