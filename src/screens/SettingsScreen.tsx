@@ -24,7 +24,6 @@ import { FileService } from '../services/FileService';
 import { VaultSettings } from '../types';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
-import LoadingOverlay from '../components/LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { useNotification } from '../contexts/NotificationContext';
@@ -529,12 +528,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
       </Modal>
 
       {/* Confirm Dialog */}
-      <LoadingOverlay
-        visible={isLoading}
-        message={loadingMessage}
-        icon={loadingMessage.includes('Reset') ? 'delete-forever' : 
-              loadingMessage.includes('Export') ? 'cloud-upload' : 'security'}
-      />
 
       <ConfirmDialog
         visible={showConfirmDialog}

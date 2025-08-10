@@ -21,7 +21,6 @@ import MediaGrid from '../components/MediaGrid';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
 import FoldersScreen from './FoldersScreen';
-import LoadingOverlay from '../components/LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
@@ -71,8 +70,6 @@ const handleCloseImageDetails = useCallback(() => {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<{current: number, total: number, filename?: string} | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
@@ -165,9 +162,6 @@ const handleCloseImageDetails = useCallback(() => {
 
 
   const handleImportPress = useCallback(async () => {
-    // Start loading immediately
-    setIsImporting(true);
-    setImportProgress(null);
 
     try {
       logInfo('VaultScreen', 'Import started - user clicked import button');
@@ -181,12 +175,6 @@ const handleCloseImageDetails = useCallback(() => {
       if (!cryptoService.isMasterKeySet()) {
         logInfo('VaultScreen', 'Master key not set, attempting to restore');
         
-        // Update progress to show authentication is happening
-        setImportProgress({
-          current: 0,
-          total: 1,
-          filename: 'Preparing vault access...',
-        });
         
         const restoreResult = await authService.restoreMasterKey();
         logDebug('VaultScreen', 'Restore result', restoreResult);
@@ -212,20 +200,10 @@ const handleCloseImageDetails = useCallback(() => {
       
       logInfo('VaultScreen', 'Master key confirmed - proceeding with import');
       
-      // Reset progress for actual import
-      setImportProgress(null);
-      
       logInfo('VaultScreen', 'Calling mediaService.importFromGallery...');
       
       // Direct import using image picker
-      const result = await mediaService.importFromGallery((progress) => {
-        logDebug('VaultScreen', 'Import progress', { current: progress.current, total: progress.total, file: progress.currentFileName });
-        setImportProgress({
-          current: progress.current,
-          total: progress.total,
-          filename: progress.currentFileName,
-        });
-      });
+      const result = await mediaService.importFromGallery();
 
       logInfo('VaultScreen', 'Import result received', { success: result.success, imported: result.imported, errors: result.errors });
 
@@ -272,9 +250,7 @@ const handleCloseImageDetails = useCallback(() => {
         }
       );
     } finally {
-      // Always clear loading state
-      setIsImporting(false);
-      setImportProgress(null);
+      // Import completed
     }
   }, [mediaService, loadVaultItems, authService]);
 
@@ -565,26 +541,6 @@ const handleCloseImageDetails = useCallback(() => {
             }
           />
         )}
-        
-        <LoadingOverlay
-          visible={isLoading}
-          message="Loading your vault..."
-          icon="folder-special"
-        />
-        
-        <LoadingOverlay
-          visible={isImporting}
-          message={importProgress?.filename === 'Preparing vault access...' 
-            ? "Preparing vault access..." 
-            : "Importing media to vault..."}
-          progress={importProgress ? {
-            current: importProgress.current,
-            total: importProgress.total,
-            filename: importProgress.filename,
-          } : undefined}
-          type="progress"
-          icon={importProgress?.filename === 'Preparing vault access...' ? "security" : "download"}
-        />
       </View>
     );
   };

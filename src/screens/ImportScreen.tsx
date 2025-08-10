@@ -23,7 +23,6 @@ import { PermissionsUtil } from '../utils/permissions';
 import { COLORS } from '../utils/constants';
 import { MediaItem, ImportProgress } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
-import LoadingOverlay from '../components/LoadingOverlay';
 
 interface ImportScreenProps {
   onBack: () => void;
@@ -316,11 +315,8 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
     return (
       <View style={styles.loadingContainer}>
         <StatusBar backgroundColor={COLORS.vaultBackground} barStyle="light-content" />
-        <LoadingOverlay
-          visible={true}
-          message="Loading your gallery..."
-          icon="photo-library"
-        />
+        <ActivityIndicator size="large" color={COLORS.vaultAccent} />
+        <Text style={styles.loadingText}>Loading your gallery...</Text>
       </View>
     );
   }
@@ -355,17 +351,19 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
         />
       )}
 
-      <LoadingOverlay
-        visible={isImporting}
-        message={importProgress?.status === 'completed' ? 'Import Complete!' : 'Importing your media...'}
-        progress={importProgress ? {
-          current: importProgress.current,
-          total: importProgress.total,
-          filename: importProgress.currentFileName,
-        } : undefined}
-        type="progress"
-        icon="download"
-      />
+      {isImporting && (
+        <View style={styles.importingOverlay}>
+          <ActivityIndicator size="large" color={COLORS.vaultAccent} />
+          <Text style={styles.importingText}>
+            {importProgress?.status === 'completed' ? 'Import Complete!' : 'Importing your media...'}
+          </Text>
+          {importProgress && (
+            <Text style={styles.progressText}>
+              {importProgress.current} of {importProgress.total} - {importProgress.currentFileName}
+            </Text>
+          )}
+        </View>
+      )}
 
       <ConfirmDialog
         visible={showConfirmDialog}
@@ -531,6 +529,29 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  importingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  importingText: {
+    color: COLORS.surface,
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  progressText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 

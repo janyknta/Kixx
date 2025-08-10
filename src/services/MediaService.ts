@@ -2,7 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
-import { launchImageLibrary, MediaType as PickerMediaType } from 'react-native-image-picker';
+import ImagePicker from 'react-native-image-crop-picker';
 import RNFS from 'react-native-fs';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 import { v4 as uuidv4 } from 'uuid';
@@ -312,44 +312,38 @@ export class MediaService {
       
       // Launch image picker for multiple selection
       const result = await new Promise<MediaItem[]>((resolve, reject) => {
-        launchImageLibrary(
-          {
-            mediaType: 'mixed',
-            selectionLimit: 0, // 0 means unlimited
-            quality: 1,
-            includeBase64: false,
-          },
-          (response: any) => {
-            if (response.didCancel) {
-              // User cancelled - return empty array, don't treat as error
-              logInfo('MediaService', 'User cancelled image selection');
-              resolve([]);
-              return;
-            }
-
-            if (response.errorMessage) {
-              reject(new Error(response.errorMessage));
-              return;
-            }
-
-            if (!response.assets || response.assets.length === 0) {
-              resolve([]);
-              return;
-            }
-
-            const mediaItems: MediaItem[] = response.assets.map((asset: any) => ({
-              uri: asset.uri || '',
-              filename: asset.fileName,
-              type: asset.type || '',
-              fileSize: asset.fileSize,
-              width: asset.width,
-              height: asset.height,
-              duration: asset.duration,
-            }));
-
-            resolve(mediaItems);
+        ImagePicker.openPicker({
+          multiple: true,
+          mediaType: 'any',
+          compressImageQuality: 0.8,
+          maxFiles: 50,
+          cropping: false, // Disabled to avoid Android video issues
+        }).then((response: any) => {
+          if (!response || response.length === 0) {
+            resolve([]);
+            return;
           }
-        );
+
+          const mediaItems: MediaItem[] = response.map((asset: any) => ({
+            uri: asset.path || asset.uri || '',
+            filename: asset.filename || `media_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            type: asset.mime || '',
+            fileSize: asset.size,
+            width: asset.width,
+            height: asset.height,
+            duration: asset.duration,
+          }));
+
+          resolve(mediaItems);
+        }).catch((error: any) => {
+          if (error.code === 'E_PICKER_CANCELLED') {
+            // User cancelled - return empty array, don't treat as error
+            logInfo('MediaService', 'User cancelled image selection');
+            resolve([]);
+            return;
+          }
+          reject(new Error(error.message || 'Image picker failed'));
+        });
       });
 
       if (result.length === 0) {

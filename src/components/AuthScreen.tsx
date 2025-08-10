@@ -14,7 +14,6 @@ import { AuthService } from '../services/AuthService';
 import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import NumberPad from './NumberPad';
 import CalculatorScreen from './CalculatorScreen';
-import LoadingOverlay from './LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { useNotification } from '../contexts/NotificationContext';
@@ -250,11 +249,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         {authMode === 'setup' && renderSetupMode()}
         {authMode === 'login' && renderLoginMode()}
         
-        <LoadingOverlay
-          visible={isLoading}
-          message={getLoadingMessage()}
-          icon={getLoadingIcon()}
-        />
+        {isLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={colors.vaultAccent} />
+            <Text style={[styles.loadingText, { color: colors.surface }]}>
+              {getLoadingMessage()}
+            </Text>
+          </View>
+        )}
         
         {/* Custom Alert Dialog */}
         {AlertComponent}
@@ -328,6 +330,22 @@ const styles = StyleSheet.create({
   disabledButtonText: {
     color: COLORS.surface,
     opacity: 0.7,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
   },
 });
 

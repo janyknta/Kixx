@@ -9,7 +9,6 @@ import {
   FlatList,
   StatusBar,
   RefreshControl,
-  Dimensions,
 } from 'react-native';
 import Icon from "@react-native-vector-icons/material-icons";
 import { Animated } from 'react-native';
@@ -18,7 +17,6 @@ import { MediaService } from '../services/MediaService';
 import { VaultItem } from '../types';
 import { COLORS } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
-import LoadingOverlay from '../components/LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
@@ -187,7 +185,6 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
   const [trashItems, setTrashItems] = useState<VaultItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'restore' | 'delete' | null>(null);
@@ -201,7 +198,6 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
 
   const loadTrashItems = useCallback(async () => {
     try {
-      setIsLoading(true);
       
       // Reload metadata to get latest trash items
       const loadResult = await mediaService.loadMetadata();
@@ -216,7 +212,7 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
       console.error('Failed to load trash items:', error);
       showError('Failed to load trash items');
     } finally {
-      setIsLoading(false);
+      // Loading completed
     }
   }, [mediaService]);
 
@@ -573,11 +569,6 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
         />
       )}
 
-      <LoadingOverlay
-        visible={isLoading}
-        message="Loading trash items..."
-        icon="delete"
-      />
 
       <ConfirmDialog
         visible={showConfirmDialog}
@@ -595,7 +586,6 @@ const TrashScreen: React.FC<TrashScreenProps> = ({ onBack, onItemRestored }) => 
   );
 };
 
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {

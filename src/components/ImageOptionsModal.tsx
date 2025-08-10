@@ -160,7 +160,7 @@ const ImageOptionsModal: React.FC<ImageOptionsModalProps> = ({
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Icon name={item.type === 'image' ? 'image' : 'videocam'} size={24} color={colors.vaultAccent} />
             <Text style={[styles.title, { color: colors.vaultText }]} numberOfLines={1}>
-              {item.fileName}
+              {item.originalName}
             </Text>
           </View>
 
