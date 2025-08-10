@@ -22,6 +22,7 @@ import MediaGrid from '../components/MediaGrid';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
 import LoadingOverlay from '../components/LoadingOverlay';
+import PinReentryModal from '../components/PinReentryModal';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface VaultScreenProps {
@@ -41,6 +42,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
   
   const [mediaService] = useState(() => MediaService.getInstance());
   const [authService] = useState(() => AuthService.getInstance());
@@ -73,8 +75,8 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         logDebug('VaultScreen', 'Master key restore result', restoreResult);
         
         if (!restoreResult.success) {
-          logError('VaultScreen', 'Failed to restore master key, forcing logout');
-          onLogout();
+          logError('VaultScreen', 'Failed to restore master key, showing PIN modal');
+          setShowPinModal(true);
           return;
         }
       }
@@ -129,6 +131,7 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     setImportProgress(null);
 
     try {
+      logInfo('VaultScreen', 'Import started - user clicked import button');
       // Always ensure master key is available before importing
       const { CryptoService } = require('../services/CryptoService');
       const cryptoService = CryptoService.getInstance();
@@ -150,15 +153,19 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         logDebug('VaultScreen', 'Restore result', restoreResult);
         
         if (!restoreResult.success) {
-          // If restore fails, show error but don't logout
-          Alert.alert('Import Failed', 'Session expired. Please try again.');
+          // If restore fails, show PIN modal
+          setIsImporting(false);
+          setImportProgress(null);
+          setShowPinModal(true);
           return;
         }
       }
       
       // Double-check that master key is now set
       if (!cryptoService.isMasterKeySet()) {
-        Alert.alert('Import Failed', 'Unable to access vault. Please try again.');
+        setIsImporting(false);
+        setImportProgress(null);
+        setShowPinModal(true);
         return;
       }
       
@@ -166,6 +173,8 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
       
       // Reset progress for actual import
       setImportProgress(null);
+      
+      logInfo('VaultScreen', 'Calling mediaService.importFromGallery...');
       
       // Direct import using image picker
       const result = await mediaService.importFromGallery((progress) => {
@@ -177,22 +186,46 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         });
       });
 
+      logInfo('VaultScreen', 'Import result received', { success: result.success, imported: result.imported, errors: result.errors });
+
       if (result.success) {
         // Refresh the vault items if anything was imported
         if (result.imported > 0) {
           await loadVaultItems();
         }
       } else {
-        // Only show error if there are actual import errors (not user cancellation)
-        if (result.errors.length > 0 && !result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
-          const errorMessage = result.errors.join('\n');
-          Alert.alert('Import Failed', errorMessage);
+        // Check if error is due to authentication/master key issues
+        const hasAuthError = result.errors.some(err => 
+          err.includes('Authentication required') || 
+          err.includes('Master key') || 
+          err.includes('not available for encryption')
+        );
+        
+        if (hasAuthError) {
+          // Show PIN modal instead of error alert
+          logInfo('VaultScreen', 'Authentication error detected, showing PIN modal');
+          setShowPinModal(true);
+        } else {
+          // Only show error if there are actual import errors (not user cancellation)
+          if (result.errors.length > 0 && !result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
+            const errorMessage = result.errors.join('\n');
+            Alert.alert('Import Failed', errorMessage);
+          }
         }
       }
     } catch (error) {
       logError('VaultScreen', 'Import failed', error);
-      Alert.alert('Import Failed', `An error occurred during import: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Check if the error is authentication-related
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Authentication') || errorMessage.includes('Master key') || errorMessage.includes('Session')) {
+        logInfo('VaultScreen', 'Import failed due to authentication, showing PIN modal');
+        setShowPinModal(true);
+      } else {
+        Alert.alert('Import Failed', `An error occurred during import: ${errorMessage}`);
+      }
     } finally {
+      // Always clear loading state
       setIsImporting(false);
       setImportProgress(null);
     }
@@ -276,6 +309,21 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const handleViewerStateChange = useCallback((isOpen: boolean) => {
     setIsViewerOpen(isOpen);
   }, []);
+
+  const handlePinModalSuccess = useCallback(() => {
+    setShowPinModal(false);
+    // Refresh the vault items after successful re-authentication
+    loadVaultItems();
+    
+    // If user was trying to import, we could retry the import here
+    // For now, they can click import again after PIN is verified
+  }, [loadVaultItems]);
+
+  const handlePinModalCancel = useCallback(() => {
+    setShowPinModal(false);
+    // Force logout if user cancels PIN re-entry
+    onLogout();
+  }, [onLogout]);
 
   const renderHeader = () => {
     const stats = mediaService.getVaultStats();
@@ -396,6 +444,14 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
           } : undefined}
           type="progress"
           icon={importProgress?.filename === 'Preparing vault access...' ? "security" : "download"}
+        />
+        
+        <PinReentryModal
+          visible={showPinModal}
+          onSuccess={handlePinModalSuccess}
+          onCancel={handlePinModalCancel}
+          title="Session Expired"
+          message="Your session has expired for security. Please enter your PIN to continue accessing the vault."
         />
       </View>
     );

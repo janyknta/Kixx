@@ -30,8 +30,12 @@ const AppContent: React.FC = () => {
   const [authService] = useState(() => AuthService.getInstance());
   const [mediaService] = useState(() => MediaService.getInstance());
   const appStateRef = useRef(AppState.currentState);
+  const lastActiveTimeRef = useRef(Date.now());
 
   useEffect(() => {
+    // Initialize last active time
+    lastActiveTimeRef.current = Date.now();
+    
     initializeApp();
     const cleanup = setupAppStateListener();
 
@@ -102,14 +106,26 @@ const AppContent: React.FC = () => {
       
       if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
         // App is coming back to foreground from background
-        logInfo('App', 'App returning from background - requiring PIN');
-        setIsAuthenticated(false);
+        const timeInBackground = Date.now() - lastActiveTimeRef.current;
+        const maxAllowedInBackground = 10000; // 10 seconds - allows for image picker, etc.
         
-        // Clear master key
-        const cryptoService = CryptoService.getInstance();
-        cryptoService.clearMasterKey();
+        logInfo('App', 'App returning from background', { timeInBackground });
+        
+        // Only require re-authentication if app was in background for more than 10 seconds
+        // This prevents image picker and other brief native interactions from forcing logout
+        if (timeInBackground > maxAllowedInBackground) {
+          logInfo('App', 'App was in background too long - requiring PIN');
+          setIsAuthenticated(false);
+          
+          // Clear master key
+          const cryptoService = CryptoService.getInstance();
+          cryptoService.clearMasterKey();
+        } else {
+          logInfo('App', 'App was only briefly inactive - maintaining session');
+        }
       } else if (nextAppState.match(/inactive|background/)) {
-        // App is going to background
+        // App is going to background - record the time
+        lastActiveTimeRef.current = Date.now();
         logInfo('App', 'App going to background/inactive');
         await handleAppBackground();
       }
@@ -123,7 +139,7 @@ const AppContent: React.FC = () => {
 
   const handleAppBackground = async () => {
     try {
-      logInfo('App', 'App going to background - clearing master key and requiring re-auth');
+      logInfo('App', 'App going to background - performing background tasks');
       
       // Apply security measures (remove from recents on Android)
       SecurityManager.handleAppBackground();
@@ -132,15 +148,9 @@ const AppContent: React.FC = () => {
       const fileService = FileService.getInstance();
       await fileService.cleanupOldTempFiles(5); // Clean files older than 5 minutes
       
-      // Clear sensitive data from memory
-      const cryptoService = CryptoService.getInstance();
-      cryptoService.clearMasterKey();
-
-      // Force re-authentication when app goes to background/recents
-      if (isAuthenticated) {
-        setIsAuthenticated(false);
-      }
-
+      // Don't clear master key or force logout immediately - let the foreground handler decide
+      // based on how long the app was in background
+      
       // Update last active time
       await authService.updateActivity();
     } catch (error) {

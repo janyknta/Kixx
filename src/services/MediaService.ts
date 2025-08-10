@@ -389,7 +389,7 @@ export class MediaService {
           return {
             success: false,
             imported: 0,
-            errors: ['Master key was lost during image selection. Please try again.'],
+            errors: ['Authentication required. Master key not available for encryption.'],
           };
         }
         
