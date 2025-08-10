@@ -6,7 +6,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   StatusBar,
   Dimensions,
   ActivityIndicator,
@@ -17,6 +16,8 @@ import NumberPad from './NumberPad';
 import CalculatorScreen from './CalculatorScreen';
 import LoadingOverlay from './LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -27,6 +28,8 @@ type SetupStep = 'enter' | 'confirm';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const { colors } = useTheme();
+  const { showAlert, AlertComponent } = useCustomAlert();
+  const { showError } = useNotification();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [setupStep, setSetupStep] = useState<SetupStep>('enter');
   const [pin, setPin] = useState('');
@@ -51,7 +54,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       }
     } catch (error) {
       console.error('Failed to initialize auth:', error);
-      Alert.alert('Error', 'Failed to initialize authentication');
+      showError('Failed to initialize authentication');
     } finally {
       setIsLoading(false);
     }
@@ -74,11 +77,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       if (result.success) {
         onAuthenticated();
       } else {
-        Alert.alert('Setup Failed', result.error || 'Failed to setup PIN');
+        showError(result.error || 'Failed to setup PIN');
       }
     } catch (error) {
       console.error('PIN setup failed:', error);
-      Alert.alert('Error', 'Failed to setup PIN');
+      showError('Failed to setup PIN');
     } finally {
       setIsLoading(false);
     }
@@ -95,12 +98,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       if (result.success) {
         onAuthenticated();
       } else {
-        Alert.alert('Authentication Failed', result.error || 'Invalid PIN');
+        showError(result.error || 'Invalid PIN');
         setPin(''); // Clear PIN on failure
       }
     } catch (error) {
       console.error('PIN authentication failed:', error);
-      Alert.alert('Error', 'Authentication failed');
+      showError('Authentication failed');
     } finally {
       setIsLoading(false);
     }
@@ -252,6 +255,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           message={getLoadingMessage()}
           icon={getLoadingIcon()}
         />
+        
+        {/* Custom Alert Dialog */}
+        {AlertComponent}
       </View>
     </>
   );

@@ -92,9 +92,9 @@ export const ANIMATIONS = {
 };
 
 export const GRID_SIZES = {
-  small: { columns: 4, spacing: 2 },
-  medium: { columns: 3, spacing: 4 },
-  large: { columns: 2, spacing: 6 },
+  small: { columns: 4, spacing: 8 },
+  medium: { columns: 3, spacing: 12 },
+  large: { columns: 2, spacing: 16 },
 };
 
 export const ERROR_MESSAGES = {

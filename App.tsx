@@ -6,7 +6,6 @@ import {
   View,
   StyleSheet,
   StatusBar,
-  Alert,
   AppState,
   AppStateStatus,
 } from 'react-native';
@@ -22,6 +21,8 @@ import { logDebug, logInfo, logWarn, logError } from './src/services/Logger';
 import { COLORS } from './src/utils/constants';
 import AuthScreen from './src/components/AuthScreen';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { NotificationProvider } from './src/contexts/NotificationContext';
+import NotificationContainer from './src/components/NotificationContainer';
 
 const AppContent: React.FC = () => {
   const { colors } = useTheme();
@@ -90,11 +91,8 @@ const AppContent: React.FC = () => {
 
     } catch (error) {
       logError('App', 'App initialization failed', error);
-      Alert.alert(
-        'Initialization Error',
-        'Failed to initialize the app. Please restart.',
-        [{ text: 'OK' }]
-      );
+      // Log critical initialization error - app may not function properly
+      console.error('Critical initialization error:', error);
     } finally {
       setIsInitializing(false);
     }
@@ -204,6 +202,9 @@ const AppContent: React.FC = () => {
       ) : (
         <AuthScreen onAuthenticated={handleAuthenticated} />
       )}
+      
+      {/* Global Notification Container */}
+      <NotificationContainer />
     </View>
   );
 };
@@ -211,7 +212,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ThemeProvider>
-      <AppContent />
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
     </ThemeProvider>
   );
 };

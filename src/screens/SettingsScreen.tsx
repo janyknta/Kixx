@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
-  Alert,
   Switch,
   Modal,
   TextInput,
@@ -27,6 +26,8 @@ import { COLORS, VAULT_CONFIG } from '../utils/constants';
 import ConfirmDialog from '../components/ConfirmDialog';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { useTheme } from '../contexts/ThemeContext';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -123,6 +124,8 @@ const SettingItem: React.FC<SettingItemProps> = ({
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => {
   const { theme, colors, toggleTheme } = useTheme();
+  const { showAlert, AlertComponent } = useCustomAlert();
+  const { showSuccess, showError, showInfo } = useNotification();
   const [settings, setSettings] = useState<VaultSettings | null>(null);
   const [vaultStats, setVaultStats] = useState<any>(null);
   const [showPinDialog, setShowPinDialog] = useState(false);
@@ -171,7 +174,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
     if (result.success) {
       setSettings(updatedSettings);
     } else {
-      Alert.alert('Error', result.error || 'Failed to update settings');
+      showError(result.error || 'Failed to update settings');
     }
   }, [settings, mediaService]);
 
@@ -196,11 +199,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
       if (result.success) {
         setShowPinDialog(false);
       } else {
-        Alert.alert('Error', result.error || 'Failed to change PIN');
+        showError(result.error || 'Failed to change PIN');
       }
     } catch (error) {
       console.error('Failed to change PIN:', error);
-      Alert.alert('Error', 'Failed to change PIN');
+      showError('Failed to change PIN');
     } finally {
       setIsLoading(false);
     }
@@ -222,11 +225,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
         
         await Share.share(shareOptions);
       } else {
-        Alert.alert('Error', result.error || 'Failed to export data');
+        showError(result.error || 'Failed to export data');
       }
     } catch (error) {
       console.error('Failed to export data:', error);
-      Alert.alert('Error', 'Failed to export data');
+      showError('Failed to export data');
     } finally {
       setIsLoading(false);
     }
@@ -246,15 +249,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
       // This would reset all vault data - implement with caution
       const result = await authService.resetAuth();
       if (result.success) {
-        Alert.alert('Vault Reset', 'Vault has been reset successfully', [
-          { text: 'OK', onPress: onLogout }
-        ]);
+        showSuccess('Vault has been reset successfully');
+        setTimeout(() => onLogout(), 2000);
       } else {
-        Alert.alert('Error', result.error || 'Failed to reset vault');
+        showError(result.error || 'Failed to reset vault');
       }
     } catch (error) {
       console.error('Failed to reset vault:', error);
-      Alert.alert('Error', 'Failed to reset vault');
+      showError('Failed to reset vault');
     } finally {
       setIsLoading(false);
     }
@@ -279,17 +281,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
 
   return (
     <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
-      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
-      
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.vaultSurface }]}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Icon name="arrow-back" size={24} color={colors.vaultText} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.vaultText }]}>Settings</Text>
-        <View style={styles.placeholder} />
-      </View>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Vault Stats */}
         {vaultStats && (
@@ -336,7 +327,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             value={getAutoLockText(settings?.autoLockTimeout || 5)}
             onPress={() => {
               // This would open a time picker - simplified for now
-              Alert.alert('Auto-lock Timeout', 'Feature coming soon');
+              showInfo('Auto-lock timeout settings coming soon');
             }}
             colors={colors}
           />
@@ -363,7 +354,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             subtitle="Choose how media is displayed"
             value={settings?.gridSize || 'Medium'}
             onPress={() => {
-              Alert.alert('Grid Size', 'Feature coming soon');
+              showInfo('Grid size settings coming soon');
             }}
             colors={colors}
           />
@@ -390,7 +381,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             subtitle="Days to keep deleted items"
             value={`${settings?.trashRetentionDays || 30} days`}
             onPress={() => {
-              Alert.alert('Trash Retention', 'Feature coming soon');
+              showInfo('Trash retention settings coming soon');
             }}
             colors={colors}
           />
@@ -401,7 +392,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             subtitle="Remove temporary files"
             onPress={() => {
               fileService.cleanupTempFiles();
-              Alert.alert('Success', 'Cache cleaned successfully');
+              showSuccess('Cache cleaned successfully');
             }}
             colors={colors}
           />
@@ -424,7 +415,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
             title="Import Backup"
             subtitle="Restore vault from backup file"
             onPress={() => {
-              Alert.alert('Import Backup', 'Feature coming soon');
+              showInfo('Import backup feature coming soon');
             }}
             colors={colors}
           />
@@ -555,6 +546,9 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout }) => 
         onConfirm={confirmResetVault}
         onCancel={() => setShowConfirmDialog(false)}
       />
+      
+      {/* Custom Alert Dialog */}
+      {AlertComponent}
     </View>
   );
 };

@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Alert,
   RefreshControl,
   StatusBar,
 } from 'react-native';
@@ -21,19 +20,40 @@ import { logDebug, logInfo, logError } from '../services/Logger';
 import MediaGrid from '../components/MediaGrid';
 import SettingsScreen from './SettingsScreen';
 import TrashScreen from './TrashScreen';
+import FoldersScreen from './FoldersScreen';
 import LoadingOverlay from '../components/LoadingOverlay';
-import PinReentryModal from '../components/PinReentryModal';
 import { useTheme } from '../contexts/ThemeContext';
+import { useNotification } from '../contexts/NotificationContext';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import ImageOptionsModal from '../components/ImageOptionsModal';
+import ImageDetailsModal from '../components/ImageDetailsModal';
 
 interface VaultScreenProps {
   onLogout: () => void;
 }
 
-type ScreenMode = 'vault' | 'settings' | 'trash';
+type ScreenMode = 'home' | 'folders' | 'trash' | 'settings';
 
 const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
-  const { colors } = useTheme();
-  const [currentScreen, setCurrentScreen] = useState<ScreenMode>('vault');
+  const { colors, toggleTheme, theme } = useTheme();
+  const { showSuccessWithConfetti, showSuccess, showError, showInfo, showWarning } = useNotification();
+  const { showAlert, AlertComponent } = useCustomAlert();
+  
+  // Image modals state
+  const [selectedImageItem, setSelectedImageItem] = useState<VaultItem | null>(null);
+  const [showImageOptions, setShowImageOptions] = useState(false);
+  const [showImageDetails, setShowImageDetails] = useState(false);
+  
+  const handleImageLongPress = useCallback((item: VaultItem) => {
+    setSelectedImageItem(item);
+    setShowImageOptions(true);
+  }, []);
+  
+  const handleShowImageDetails = useCallback(() => {
+    setShowImageDetails(true);
+  }, []);
+  
+  const [currentScreen, setCurrentScreen] = useState<ScreenMode>('home');
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -42,7 +62,6 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
   
   const [mediaService] = useState(() => MediaService.getInstance());
   const [authService] = useState(() => AuthService.getInstance());
@@ -75,8 +94,8 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         logDebug('VaultScreen', 'Master key restore result', restoreResult);
         
         if (!restoreResult.success) {
-          logError('VaultScreen', 'Failed to restore master key, showing PIN modal');
-          setShowPinModal(true);
+          logError('VaultScreen', 'Failed to restore master key, forcing logout');
+          onLogout();
           return;
         }
       }
@@ -86,7 +105,10 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
       logDebug('VaultScreen', 'Load metadata result', loadResult);
       
       if (!loadResult.success) {
-        Alert.alert('Error', loadResult.error || 'Failed to load vault data');
+        showError(loadResult.error || 'Failed to load vault data', {
+          label: 'Retry',
+          onPress: () => loadVaultItems()
+        });
         return;
       }
 
@@ -112,7 +134,10 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
       }
     } catch (error) {
       logError('VaultScreen', 'Failed to load vault items', error);
-      Alert.alert('Error', 'Failed to load vault items');
+      showError('Failed to load vault items', {
+        label: 'Retry',
+        onPress: () => loadVaultItems()
+      });
     } finally {
       setIsLoading(false);
     }
@@ -153,19 +178,21 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         logDebug('VaultScreen', 'Restore result', restoreResult);
         
         if (!restoreResult.success) {
-          // If restore fails, show PIN modal
-          setIsImporting(false);
-          setImportProgress(null);
-          setShowPinModal(true);
+          // If restore fails, show error but don't logout
+          showError('Session expired. Please try again.', {
+            label: 'Retry',
+            onPress: () => handleImportPress()
+          });
           return;
         }
       }
       
       // Double-check that master key is now set
       if (!cryptoService.isMasterKeySet()) {
-        setIsImporting(false);
-        setImportProgress(null);
-        setShowPinModal(true);
+        showError('Unable to access vault. Please try again.', {
+          label: 'Retry',
+          onPress: () => handleImportPress()
+        });
         return;
       }
       
@@ -192,38 +219,44 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
         // Refresh the vault items if anything was imported
         if (result.imported > 0) {
           await loadVaultItems();
+          
+          // Show success notification with confetti
+          const itemText = result.imported === 1 ? 'item' : 'items';
+          showSuccessWithConfetti(
+            `${result.imported} ${itemText} moved to vault`,
+            {
+              label: 'View',
+              onPress: () => {
+                // Already on vault screen, just dismiss
+              }
+            }
+          );
+        } else {
+          // No items imported (could be duplicates or user canceled)
+          if (!result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
+            showInfo('No new items to import - all selected items are already in your vault');
+          }
         }
       } else {
-        // Check if error is due to authentication/master key issues
-        const hasAuthError = result.errors.some(err => 
-          err.includes('Authentication required') || 
-          err.includes('Master key') || 
-          err.includes('not available for encryption')
-        );
-        
-        if (hasAuthError) {
-          // Show PIN modal instead of error alert
-          logInfo('VaultScreen', 'Authentication error detected, showing PIN modal');
-          setShowPinModal(true);
-        } else {
-          // Only show error if there are actual import errors (not user cancellation)
-          if (result.errors.length > 0 && !result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
-            const errorMessage = result.errors.join('\n');
-            Alert.alert('Import Failed', errorMessage);
-          }
+        // Only show error if there are actual import errors (not user cancellation)
+        if (result.errors.length > 0 && !result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
+          const errorMessage = result.errors.length === 1 ? result.errors[0] : 
+            `Import failed with ${result.errors.length} errors. Check your device storage and permissions.`;
+          showError(errorMessage, {
+            label: 'Retry',
+            onPress: () => handleImportPress()
+          });
         }
       }
     } catch (error) {
       logError('VaultScreen', 'Import failed', error);
-      
-      // Check if the error is authentication-related
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('Authentication') || errorMessage.includes('Master key') || errorMessage.includes('Session')) {
-        logInfo('VaultScreen', 'Import failed due to authentication, showing PIN modal');
-        setShowPinModal(true);
-      } else {
-        Alert.alert('Import Failed', `An error occurred during import: ${errorMessage}`);
-      }
+      showError(
+        `Import failed: ${error instanceof Error ? error.message : 'An unexpected error occurred'}`,
+        {
+          label: 'Retry',
+          onPress: () => handleImportPress()
+        }
+      );
     } finally {
       // Always clear loading state
       setIsImporting(false);
@@ -251,10 +284,18 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
 
   const handleItemLongPress = useCallback((itemId: string) => {
     if (!isSelectionMode) {
-      setIsSelectionMode(true);
-      setSelectedItems(new Set([itemId]));
+      // Find the item and show options modal
+      const item = vaultItems.find(item => item.id === itemId);
+      if (item) {
+        setSelectedImageItem(item);
+        setShowImageOptions(true);
+      } else {
+        // Fallback to selection mode
+        setIsSelectionMode(true);
+        setSelectedItems(new Set([itemId]));
+      }
     }
-  }, [isSelectionMode]);
+  }, [isSelectionMode, vaultItems]);
 
   const handleSelectAll = useCallback(() => {
     const allItemIds = new Set(vaultItems.map(item => item.id));
@@ -267,17 +308,27 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   }, []);
 
   const handleMoveToTrash = useCallback(async () => {
+    console.log('handleMoveToTrash called', { selectedItemsSize: selectedItems.size });
     if (selectedItems.size === 0) return;
 
-    Alert.alert(
-      'Move to Trash',
-      `Move ${selectedItems.size} item(s) to trash?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
+    const itemText = selectedItems.size === 1 ? 'item' : 'items';
+    
+    console.log('Showing custom alert');
+    showAlert({
+      title: 'Move to Trash',
+      message: `Are you sure you want to move ${selectedItems.size} ${itemText} to trash? You can restore them later.`,
+      icon: 'delete',
+      iconColor: colors.warning,
+      buttons: [
         {
-          text: 'Move',
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Move to Trash',
           style: 'destructive',
           onPress: async () => {
+            console.log('Move to Trash button pressed, starting operation');
             try {
               const itemIds = Array.from(selectedItems);
               const result = await mediaService.batchMoveToTrash(itemIds);
@@ -286,21 +337,41 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
                 await loadVaultItems();
                 setSelectedItems(new Set());
                 setIsSelectionMode(false);
-              } else {
-                Alert.alert(
-                  'Partial Success',
-                  `Moved ${result.processed} items. Errors: ${result.errors.join(', ')}`
+                
+                const processedText = result.processed === 1 ? 'item' : 'items';
+                showSuccess(
+                  `${result.processed} ${processedText} moved to trash`,
+                  {
+                    label: 'View Trash',
+                    onPress: () => {
+                      setCurrentScreen('trash');
+                    }
+                  }
                 );
+              } else {
+                const processedText = result.processed === 1 ? 'item' : 'items';
+                showWarning(`Moved ${result.processed} ${processedText}. Some items had errors.`);
               }
             } catch (error) {
               logError('VaultScreen', 'Failed to move items to trash', error);
-              Alert.alert('Error', 'Failed to move items to trash');
+              showError('Failed to move items to trash', {
+                label: 'Retry',
+                onPress: () => handleMoveToTrash()
+              });
             }
-          },
+          }
         },
-      ]
-    );
-  }, [selectedItems, mediaService, loadVaultItems]);
+      ],
+    });
+  }, [selectedItems, mediaService, loadVaultItems, showSuccess, showWarning, showError, setCurrentScreen, showAlert, colors.warning]);
+
+  const handleDeleteFromModal = useCallback(() => {
+    if (selectedImageItem) {
+      setSelectedItems(new Set([selectedImageItem.id]));
+      setIsSelectionMode(true);
+      handleMoveToTrash();
+    }
+  }, [selectedImageItem, handleMoveToTrash]);
 
   const getFilteredItems = useCallback(() => {
     return vaultItems;
@@ -310,43 +381,44 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     setIsViewerOpen(isOpen);
   }, []);
 
-  const handlePinModalSuccess = useCallback(() => {
-    setShowPinModal(false);
-    // Refresh the vault items after successful re-authentication
-    loadVaultItems();
-    
-    // If user was trying to import, we could retry the import here
-    // For now, they can click import again after PIN is verified
-  }, [loadVaultItems]);
-
-  const handlePinModalCancel = useCallback(() => {
-    setShowPinModal(false);
-    // Force logout if user cancels PIN re-entry
-    onLogout();
-  }, [onLogout]);
-
   const renderHeader = () => {
     const stats = mediaService.getVaultStats();
+    const showStats = currentScreen === 'home';
     
     return (
-      <View style={[styles.header, { backgroundColor: colors.vaultSurface }]}>
-        <View style={styles.headerTop}>
-          <Text style={[styles.headerTitle, { color: colors.vaultText }]}>Vault</Text>
+      <View style={[styles.header, { backgroundColor: colors.vaultBackground }]}>
+        <View style={styles.headerContent}>
+          {/* Logo/Brand */}
+          <View style={styles.brandContainer}>
+            <View style={[styles.logoContainer, { backgroundColor: colors.vaultAccent }]}>
+              <Icon name="security" size={16} color={colors.surface} />
+            </View>
+            <Text style={[styles.brandText, { color: colors.vaultText }]}>Vault</Text>
+          </View>
+          
+          {/* Actions */}
           <View style={styles.headerActions}>
             <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => setCurrentScreen('settings')}
+              style={[styles.actionButton, { backgroundColor: colors.vaultSurface }]}
+              onPress={toggleTheme}
+              activeOpacity={0.8}
             >
-              <Icon name="settings" size={24} color={colors.vaultText} />
+              <Icon 
+                name={theme === 'dark' ? 'light-mode' : 'dark-mode'} 
+                size={20} 
+                color={colors.vaultAccent} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.vaultSurface }]}
+              onPress={onLogout}
+              activeOpacity={0.8}
+            >
+              <Icon name="logout" size={20} color={colors.danger} />
             </TouchableOpacity>
           </View>
         </View>
         
-        <View style={styles.statsContainer}>
-          <Text style={[styles.statsText, { color: colors.textSecondary }]}>
-            {stats.activeItems} items • {stats.imageCount} photos • {stats.videoCount} videos
-          </Text>
-        </View>
         
         {isSelectionMode && (
           <View style={[styles.selectionBar, { borderTopColor: colors.border }]}>
@@ -360,7 +432,10 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
               <TouchableOpacity onPress={handleDeselectAll} style={styles.selectionButton}>
                 <Text style={[styles.selectionButtonText, { color: colors.vaultAccent }]}>None</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleMoveToTrash} style={[styles.deleteButton, { backgroundColor: colors.danger }]}>
+              <TouchableOpacity onPress={() => {
+                console.log('Delete button clicked, selected items:', selectedItems.size);
+                handleMoveToTrash();
+              }} style={[styles.deleteButton, { backgroundColor: colors.danger }]}>
                 <Icon name="delete" size={20} color={colors.surface} />
               </TouchableOpacity>
             </View>
@@ -387,22 +462,75 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
     </View>
   );
 
-  const renderFAB = () => (
-    <TouchableOpacity
-      style={[styles.fab, { backgroundColor: colors.vaultAccent }]}
-      onPress={handleImportPress}
-    >
-      <Icon name="add" size={24} color={colors.surface} />
-    </TouchableOpacity>
-  );
+  const renderFAB = () => {
+    // Only show FAB on home screen
+    if (currentScreen !== 'home') return null;
+    
+    return (
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: colors.vaultAccent }]}
+        onPress={handleImportPress}
+      >
+        <Icon name="add" size={24} color={colors.surface} />
+      </TouchableOpacity>
+    );
+  };
 
-  const renderVaultScreen = () => {
+  const renderBottomNav = () => {
+    const tabs = [
+      { key: 'home', label: 'Home', icon: 'home', activeIcon: 'home' },
+      { key: 'folders', label: 'Folders', icon: 'folder', activeIcon: 'folder' },
+      { key: 'trash', label: 'Trash', icon: 'delete', activeIcon: 'delete' },
+      { key: 'settings', label: 'Vault', icon: 'settings', activeIcon: 'settings' },
+    ];
+
+    return (
+      <View style={[styles.bottomNav, { backgroundColor: colors.vaultSurface }]}>
+        <View style={[styles.navContainer]}>
+          {tabs.map((tab) => {
+            const isActive = currentScreen === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.navTab, 
+                  isActive && { 
+                    backgroundColor: colors.vaultAccent,
+                    shadowColor: colors.vaultAccent,
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }
+                ]}
+                onPress={() => setCurrentScreen(tab.key as ScreenMode)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.navIconContainer, isActive && styles.activeNavIcon, { opacity: isActive ? 1 : 0.6 }]}>
+                  <Icon 
+                    name={tab.icon} 
+                    size={22} 
+                    color={isActive ? colors.surface : colors.textSecondary} 
+                  />
+                </View>
+                {isActive && (
+                  <Text style={[styles.navTabLabel, { color: colors.surface }]}>
+                    {tab.label}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const renderHomeScreen = () => {
     const filteredItems = getFilteredItems();
     
     return (
-      <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
-        {!isViewerOpen && renderHeader()}
-        
+      <View style={styles.screenContent}>
         {filteredItems.length === 0 && !isLoading ? (
           renderEmptyState()
         ) : (
@@ -424,8 +552,6 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
           />
         )}
         
-        {!isSelectionMode && !isViewerOpen && renderFAB()}
-        
         <LoadingOverlay
           visible={isLoading}
           message="Loading your vault..."
@@ -445,37 +571,75 @@ const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
           type="progress"
           icon={importProgress?.filename === 'Preparing vault access...' ? "security" : "download"}
         />
-        
-        <PinReentryModal
-          visible={showPinModal}
-          onSuccess={handlePinModalSuccess}
-          onCancel={handlePinModalCancel}
-          title="Session Expired"
-          message="Your session has expired for security. Please enter your PIN to continue accessing the vault."
-        />
       </View>
     );
   };
 
-  // Render different screens based on current mode
-  switch (currentScreen) {
-    case 'settings':
-      return (
-        <SettingsScreen
-          onBack={() => setCurrentScreen('vault')}
-          onLogout={onLogout}
-        />
-      );
-    case 'trash':
-      return (
-        <TrashScreen
-          onBack={() => setCurrentScreen('vault')}
-          onItemRestored={loadVaultItems}
-        />
-      );
-    default:
-      return renderVaultScreen();
-  }
+  const renderCurrentScreen = () => {
+    switch (currentScreen) {
+      case 'home':
+        return renderHomeScreen();
+      case 'folders':
+        return <FoldersScreen />;
+      case 'trash':
+        return (
+          <View style={styles.screenContent}>
+            <TrashScreen
+              onBack={() => setCurrentScreen('home')}
+              onItemRestored={loadVaultItems}
+            />
+          </View>
+        );
+      case 'settings':
+        return (
+          <View style={styles.screenContent}>
+            <SettingsScreen
+              onBack={() => setCurrentScreen('home')}
+              onLogout={onLogout}
+            />
+          </View>
+        );
+      default:
+        return renderHomeScreen();
+    }
+  };
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
+      {!isViewerOpen && renderHeader()}
+      
+      {renderCurrentScreen()}
+      
+      {!isSelectionMode && !isViewerOpen && renderFAB()}
+      
+      {!isViewerOpen && renderBottomNav()}
+      
+      {/* Custom Alert Dialog */}
+      {AlertComponent}
+      
+      {/* Image Options Modal */}
+      <ImageOptionsModal
+        visible={showImageOptions}
+        item={selectedImageItem}
+        onClose={() => {
+          setShowImageOptions(false);
+          setSelectedImageItem(null);
+        }}
+        onShowDetails={handleShowImageDetails}
+        onDelete={handleDeleteFromModal}
+      />
+      
+      {/* Image Details Modal */}
+      <ImageDetailsModal
+        visible={showImageDetails}
+        item={selectedImageItem}
+        onClose={() => {
+          setShowImageDetails(false);
+          setSelectedImageItem(null);
+        }}
+      />
+    </View>
+  );
 };
 
 
@@ -485,36 +649,69 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.vaultBackground,
   },
   header: {
-    backgroundColor: COLORS.vaultSurface,
     paddingTop: StatusBar.currentHeight || 0,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  headerTop: {
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 16,
-    paddingBottom: 8,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.vaultText,
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  brandText: {
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
   headerActions: {
     flexDirection: 'row',
+    gap: 12,
   },
-  headerButton: {
-    marginLeft: 16,
-    padding: 8,
+  actionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   statsContainer: {
-    paddingTop: 8,
+    paddingTop: 16,
+    alignItems: 'flex-start',
+  },
+  statsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
   },
   statsText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   selectionBar: {
     flexDirection: 'row',
@@ -589,7 +786,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 16,
-    bottom: 16,
+    bottom: 100, // Moved up to account for bottom nav
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -601,6 +798,45 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+  },
+  screenContent: {
+    flex: 1,
+  },
+  bottomNav: {
+    paddingBottom: 20,
+    paddingTop: 8,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  navContainer: {
+    flexDirection: 'row',
+    borderRadius: 24,
+    padding: 3,
+    justifyContent: 'space-around',
+  },
+  navTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    minHeight: 44,
+  },
+  navIconContainer: {
+    marginRight: 0,
+  },
+  activeNavIcon: {
+    marginRight: 8,
+  },
+  navTabLabel: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

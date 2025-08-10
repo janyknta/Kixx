@@ -9,7 +9,6 @@ import {
   Dimensions,
   Image,
   RefreshControl,
-  Alert,
   RefreshControlProps,
   ActivityIndicator,
 } from 'react-native';
@@ -23,6 +22,8 @@ import { MediaService } from '../services/MediaService';
 import { logDebug, logError } from '../services/Logger';
 import MediaViewer from './MediaViewer';
 import { useTheme } from '../contexts/ThemeContext';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+
 interface MediaGridProps {
   items: VaultItem[];
   selectedItems: Set<string>;
@@ -172,19 +173,7 @@ const GridItem: React.FC<GridItemProps> = ({
             </View>
           </BlurView>
         )}
-        
-        {/* Gradient overlay for text */}
-        <View style={styles.gradientOverlay} />
-        
-        {/* Item info */}
-        <View style={styles.itemInfo}>
-          <Text style={[styles.itemName, { color: colors.surface }]} numberOfLines={1}>
-            {item.originalName}
-          </Text>
-          <Text style={[styles.itemDetails, { color: colors.surface }]}>
-            {formatFileSize(item.size)} • {formatDate(item.dateAdded)}
-          </Text>
-        </View>
+
       </View>
     </TouchableOpacity>
   );
@@ -202,6 +191,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   onViewerStateChange,
 }) => {
   const { colors } = useTheme();
+  const { showAlert, AlertComponent } = useCustomAlert();
   const [viewerItem, setViewerItem] = useState<VaultItem | null>(null);
   const [mediaService] = useState(() => MediaService.getInstance());
 
@@ -230,44 +220,43 @@ const MediaGrid: React.FC<MediaGridProps> = ({
     return rows;
   }, [items, columns]);
 
-  const renderRow = useCallback(({ item: row }: { item: VaultItem[] }) => (
-    <View style={[styles.row, { paddingHorizontal: spacing / 2 }]}>
-      {row.map((item, index) => (
-        <View
-          key={item.id}
-          style={[
-            styles.gridItemWrapper,
-            { 
-              width: itemSize, 
-              marginHorizontal: spacing / 2,
-              marginRight: index === row.length - 1 && row.length < columns ? 'auto' : spacing / 2
-            }
-          ]}
-        >
-          <GridItem
-            item={item}
-            isSelected={selectedItems.has(item.id)}
-            isSelectionMode={isSelectionMode}
-            onSelect={() => onItemSelect(item.id)}
-            onLongPress={() => onItemLongPress(item.id)}
-            onPress={() => handleItemPress(item)}
-            itemSize={itemSize}
-            colors={colors}
-          />
-        </View>
-      ))}
-      {/* Fill empty slots in the last row */}
-      {row.length < columns && Array.from({ length: columns - row.length }).map((_, index) => (
-        <View
-          key={`empty-${index}`}
-          style={[
-            styles.gridItemWrapper,
-            { width: itemSize, marginHorizontal: spacing / 2 }
-          ]}
+const renderRow = useCallback(({ item: row }: { item: VaultItem[] }) => (
+  <View style={[styles.row, { paddingHorizontal: spacing / 2 }]}>
+    {/* Add this empty view to push content to center */}
+    {row.length < columns && (
+      <View style={{ flex: 1 }} />
+    )}
+    
+    {row.map((item, index) => (
+      <View
+        key={item.id}
+        style={[
+          styles.gridItemWrapper,
+          { 
+            width: itemSize, 
+            marginHorizontal: spacing / 2,
+          }
+        ]}
+      >
+        <GridItem
+          item={item}
+          isSelected={selectedItems.has(item.id)}
+          isSelectionMode={isSelectionMode}
+          onSelect={() => onItemSelect(item.id)}
+          onLongPress={() => onItemLongPress(item.id)}
+          onPress={() => handleItemPress(item)}
+          itemSize={itemSize}
+          colors={colors}
         />
-      ))}
-    </View>
-  ), [itemSize, spacing, columns, selectedItems, isSelectionMode, onItemSelect, onItemLongPress, handleItemPress, colors]);
+      </View>
+    ))}
+    
+    {/* Add this empty view to push content to center */}
+    {row.length < columns && (
+      <View style={{ flex: 1 }} />
+    )}
+  </View>
+), [itemSize, spacing, columns, selectedItems, isSelectionMode, onItemSelect, onItemLongPress, handleItemPress, colors]);
 
   const getItemType = useCallback(() => {
     return 'row';
@@ -290,8 +279,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
         data={rows}
         renderItem={renderRow}
         getItemType={getItemType}
-        estimatedItemSize={itemSize + spacing}
-        contentContainerStyle={[styles.flashListContent, { paddingBottom: 100 }]}
+        contentContainerStyle={[styles.flashListContent, { paddingBottom: 120, paddingHorizontal: 16 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl}
         keyExtractor={(item, index) => `row-${index}`}
@@ -306,6 +294,9 @@ const MediaGrid: React.FC<MediaGridProps> = ({
           mediaService={mediaService}
         />
       )}
+      
+      {/* Custom Alert Dialog */}
+      {AlertComponent}
     </View>
   );
 };
@@ -315,28 +306,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   flashListContent: {
-    paddingTop: 16,
+    paddingTop: 20,
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'center'
   },
   gridItemWrapper: {
     // Dynamic width and margins are set inline
   },
   gridItem: {
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: COLORS.vaultSurface,
-    elevation: 4,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
   },
   gridItemSelected: {
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: COLORS.vaultAccent,
+    shadowColor: COLORS.vaultAccent,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 6,
   },
   mediaContainer: {
     flex: 1,
@@ -345,7 +341,7 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: '100%',
     height: '100%',
-    borderRadius: 10,
+    borderRadius: 14,
   },
   placeholderThumbnail: {
     backgroundColor: COLORS.vaultSurface,

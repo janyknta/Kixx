@@ -10,7 +10,6 @@ import {
   Dimensions,
   StatusBar,
   ActivityIndicator,
-  Alert,
   PanResponder,
   Animated,
   Share,
@@ -21,6 +20,9 @@ import { BlurView } from '@react-native-community/blur';
 import { VaultItem } from '../types';
 import { COLORS } from '../utils/constants';
 import { MediaService } from '../services/MediaService';
+import { useTheme } from '../contexts/ThemeContext';
+import { useNotification } from '../contexts/NotificationContext';
+import { useCustomAlert } from '../hooks/useCustomAlert';
 
 interface MediaViewerProps {
   item: VaultItem;
@@ -30,6 +32,10 @@ interface MediaViewerProps {
 }
 
 const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted, mediaService }) => {
+  const { colors } = useTheme();
+  const { showError } = useNotification();
+  const { showAlert, AlertComponent } = useCustomAlert();
+  
   const [decryptedPath, setDecryptedPath] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isControlsVisible, setIsControlsVisible] = useState(true);
@@ -65,12 +71,12 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
       if (result.success && result.path) {
         setDecryptedPath(result.path);
       } else {
-        Alert.alert('Error', result.error || 'Failed to load media');
+        showError(result.error || 'Failed to load media');
         onClose();
       }
     } catch (error) {
       console.error('Failed to load media:', error);
-      Alert.alert('Error', 'Failed to load media');
+      showError('Failed to load media');
       onClose();
     } finally {
       setIsLoading(false);
@@ -174,13 +180,15 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Media',
-      'Move this item to trash?',
-      [
+    showAlert({
+      title: 'Move to Trash',
+      message: 'Move this item to trash? You can restore it later.',
+      icon: 'delete',
+      iconColor: colors.warning,
+      buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Move to Trash',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -189,16 +197,16 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
                 onItemDeleted?.(); // Notify parent that item was deleted
                 onClose();
               } else {
-                Alert.alert('Error', result.error || 'Failed to delete item');
+                showError(result.error || 'Failed to delete item');
               }
             } catch (error) {
               console.error('Delete failed:', error);
-              Alert.alert('Error', 'Failed to delete item');
+              showError('Failed to delete item');
             }
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
 
@@ -276,6 +284,9 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
           {renderControls()}
         </>
       )}
+      
+      {/* Custom Alert Dialog */}
+      {AlertComponent}
     </View>
   );
 };
