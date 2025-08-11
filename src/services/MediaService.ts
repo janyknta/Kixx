@@ -11,6 +11,7 @@ import { STORAGE_KEYS, VAULT_CONFIG, ERROR_MESSAGES } from '../utils/constants';
 import { VaultItem, VaultMetadata, VaultSettings, MediaItem, ImportProgress, MediaType } from '../types';
 import { CryptoService } from './CryptoService';
 import { FileService } from './FileService';
+import { VideoStreamService } from './VideoStreamService';
 import { logDebug, logInfo, logWarn, logError } from './Logger';
 
 export class MediaService {
@@ -18,12 +19,14 @@ export class MediaService {
   private vaultMetadata: VaultMetadata;
   private fileService: FileService;
   private cryptoService: CryptoService;
+  private videoStreamService: VideoStreamService;
 
   private constructor() {
     this.fileService = FileService.getInstance();
     this.cryptoService = CryptoService.getInstance();
+    this.videoStreamService = VideoStreamService.getInstance();
     this.vaultMetadata = this.getDefaultMetadata();
-    logDebug('MediaService', 'Constructor initialized with CryptoService instance');
+    logDebug('MediaService', 'Constructor initialized with CryptoService and VideoStreamService instances');
   }
 
   public static getInstance(): MediaService {
@@ -43,6 +46,9 @@ export class MediaService {
 
       // Load existing metadata
       await this.loadMetadata();
+
+      // Clean up any leftover streaming temp files
+      await this.videoStreamService.cleanupStreamingFiles();
     } catch (error) {
       console.error('Failed to initialize media service:', error);
     }
@@ -233,7 +239,12 @@ export class MediaService {
 
         try {
           console.log(`Importing: ${mediaItem.filename || 'Unknown'} from ${mediaItem.uri}`);
-          const importResult = await this.importSingleMedia(mediaItem);
+          const importResult = await this.importSingleMedia(
+            mediaItem, 
+            progressCallback, 
+            i + 1, 
+            unique.length
+          );
           if (importResult.success) {
             importedCount++;
             console.log(`Successfully imported: ${mediaItem.filename || 'Unknown'}`);
@@ -404,7 +415,12 @@ export class MediaService {
         try {
           console.log(`ImportFromGallery - Processing item ${i + 1}/${unique.length}: ${mediaItem.filename}`);
           
-          const importResult = await this.importSingleMedia(mediaItem);
+          const importResult = await this.importSingleMedia(
+            mediaItem, 
+            progressCallback, 
+            i + 1, 
+            unique.length
+          );
           console.log(`ImportFromGallery - Import result for ${mediaItem.filename}:`, importResult);
           
           if (importResult.success) {
@@ -446,9 +462,14 @@ export class MediaService {
   }
 
   /**
-   * Import a single media item to vault
+   * Import a single media item to vault with progress support
    */
-  private async importSingleMedia(mediaItem: MediaItem): Promise<{ success: boolean; error?: string }> {
+  private async importSingleMedia(
+    mediaItem: MediaItem, 
+    progressCallback?: (progress: ImportProgress) => void,
+    itemIndex?: number,
+    totalItems?: number
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log('ImportSingleMedia - Starting for:', mediaItem.filename || 'Unknown');
       console.log('ImportSingleMedia - CryptoService master key set:', this.cryptoService.isMasterKeySet());
@@ -460,25 +481,27 @@ export class MediaService {
         };
       }
 
-      // Check file size
-      if (mediaItem.fileSize && mediaItem.fileSize > VAULT_CONFIG.MAX_FILE_SIZE) {
+      // Determine media type
+      const mediaType: MediaType = mediaItem.type?.startsWith('video/') ? 'video' : 'image';
+      const fileSize = mediaItem.fileSize || 0;
+      
+      // Check file size limits based on media type
+      const maxSize = mediaType === 'video' ? VAULT_CONFIG.MAX_VIDEO_SIZE : VAULT_CONFIG.MAX_FILE_SIZE;
+      if (fileSize > maxSize) {
         return {
           success: false,
-          error: 'File too large',
+          error: `${mediaType === 'video' ? 'Video' : 'File'} too large. Maximum size is ${maxSize / (1024*1024)}MB`,
         };
       }
 
       // Check available storage
-      const hasSpace = await this.fileService.hasEnoughSpace(mediaItem.fileSize || 0);
+      const hasSpace = await this.fileService.hasEnoughSpace(fileSize);
       if (!hasSpace) {
         return {
           success: false,
           error: ERROR_MESSAGES.INSUFFICIENT_STORAGE,
         };
       }
-
-      // Determine media type
-      const mediaType: MediaType = mediaItem.type?.startsWith('video/') ? 'video' : 'image';
       
       // Generate vault item
       const vaultItem: VaultItem = {
@@ -487,24 +510,63 @@ export class MediaService {
         encryptedPath: '',
         thumbnailPath: '',
         type: mediaType,
-        size: mediaItem.fileSize || 0,
+        size: fileSize,
         dateAdded: Date.now(),
         isDeleted: false,
         originalPath: mediaItem.uri,
       };
 
-      // Move and encrypt media file
-      console.log('ImportSingleMedia - About to call moveToVault');
-      console.log('ImportSingleMedia - CryptoService instance:', this.cryptoService);
-      console.log('ImportSingleMedia - CryptoService master key set before moveToVault:', this.cryptoService.isMasterKeySet());
+      console.log(`ImportSingleMedia - Processing ${mediaType}: ${vaultItem.originalName} (${fileSize} bytes)`);
+      console.log(`ImportSingleMedia - Will use streaming: ${VideoStreamService.shouldUseStreaming(fileSize, mediaType)}`);
+
+      // Check if we should use streaming for this file
+      const useStreaming = VideoStreamService.shouldUseStreaming(fileSize, mediaType);
+      let moveResult: { success: boolean; path?: string; error?: string };
+
+      if (useStreaming && mediaType === 'video') {
+        console.log('ImportSingleMedia - Using streaming upload for large video');
+        
+        // Use streaming upload with progress tracking
+        moveResult = await this.videoStreamService.streamUploadVideo(
+          mediaItem.uri,
+          vaultItem.originalName,
+          this.cryptoService,
+          (streamProgress) => {
+            // Convert stream progress to import progress
+            progressCallback?.({
+              current: itemIndex || 1,
+              total: totalItems || 1,
+              currentFileName: vaultItem.originalName,
+              status: 'streaming',
+              bytesTransferred: streamProgress.bytesProcessed,
+              totalBytes: streamProgress.totalBytes,
+              streamProgress: streamProgress.progress,
+              currentChunk: streamProgress.currentChunk,
+              totalChunks: streamProgress.totalChunks,
+              phase: streamProgress.phase,
+            });
+          }
+        );
+      } else {
+        console.log('ImportSingleMedia - Using standard upload');
+        
+        // Report processing status
+        progressCallback?.({
+          current: itemIndex || 1,
+          total: totalItems || 1,
+          currentFileName: vaultItem.originalName,
+          status: 'processing',
+        });
+        
+        // Use standard file service upload
+        moveResult = await this.fileService.moveToVault(
+          mediaItem.uri,
+          vaultItem.originalName,
+          this.cryptoService
+        );
+      }
       
-      const moveResult = await this.fileService.moveToVault(
-        mediaItem.uri,
-        vaultItem.originalName,
-        this.cryptoService
-      );
-      
-      console.log('ImportSingleMedia - moveToVault result:', moveResult);
+      console.log('ImportSingleMedia - Upload result:', moveResult.success, moveResult.error);
 
       if (!moveResult.success) {
         return {
@@ -543,14 +605,14 @@ export class MediaService {
    */
   private async generateThumbnail(vaultItem: VaultItem): Promise<{ success: boolean; path?: string; error?: string }> {
     try {
-      // Only generate thumbnails for images
-      if (vaultItem.type !== 'image') {
+      // Generate thumbnails for images and videos
+      if (vaultItem.type !== 'image' && vaultItem.type !== 'video') {
         return {
           success: false,
-          error: 'Thumbnails only supported for images',
+          error: 'Thumbnails only supported for images and videos',
         };
       }
-
+      
       logDebug('MediaService', 'Generating thumbnail for item', { id: vaultItem.id, name: vaultItem.originalName });
 
       // Check if ImageResizer is available
@@ -657,6 +719,7 @@ export class MediaService {
     }
   }
 
+
   /**
    * Get all vault items (non-deleted)
    */
@@ -727,33 +790,73 @@ export class MediaService {
   }
 
   /**
-   * Decrypt and get temporary path for viewing media
+   * Decrypt and get temporary path for viewing media (with streaming support for large videos)
    */
-  public async getMediaForViewing(vaultItem: VaultItem): Promise<{ success: boolean; path?: string; error?: string }> {
+  public async getMediaForViewing(
+    vaultItem: VaultItem,
+    progressCallback?: (progress: { phase: string; progress: number }) => void
+  ): Promise<{ success: boolean; path?: string; error?: string }> {
     try {
+      console.log(`getMediaForViewing - Processing ${vaultItem.type}: ${vaultItem.originalName} (${vaultItem.size} bytes)`);
+      
       // Generate temporary file name
       const extension = FileService.getFileExtension(vaultItem.originalName);
       const tempFileName = `view_${vaultItem.id}_${Date.now()}${extension}`;
       const tempPath = this.fileService.getTempFilePath(tempFileName);
 
-      // Decrypt and save to temp path
-      const restoreResult = await this.fileService.restoreFromVault(
-        vaultItem.encryptedPath,
-        tempPath,
-        this.cryptoService
-      );
+      // Check if we should use streaming for large videos
+      const useStreaming = VideoStreamService.shouldUseStreaming(vaultItem.size, vaultItem.type);
+      
+      if (useStreaming && vaultItem.type === 'video') {
+        console.log('getMediaForViewing - Using streaming decryption for large video');
+        
+        // Use streaming decryption
+        const streamResult = await this.videoStreamService.streamDecryptVideo(
+          vaultItem.encryptedPath,
+          tempPath,
+          this.cryptoService,
+          (streamProgress) => {
+            progressCallback?.({
+              phase: streamProgress.phase,
+              progress: streamProgress.progress
+            });
+          }
+        );
+        
+        return streamResult;
+      } else {
+        console.log('getMediaForViewing - Using standard decryption');
+        
+        // Report decryption progress
+        progressCallback?.({
+          phase: 'reading',
+          progress: 0
+        });
 
-      if (!restoreResult.success) {
+        // Use standard file service decryption
+        const restoreResult = await this.fileService.restoreFromVault(
+          vaultItem.encryptedPath,
+          tempPath,
+          this.cryptoService
+        );
+
+        progressCallback?.({
+          phase: 'complete',
+          progress: 100
+        });
+
+        if (!restoreResult.success) {
+          return {
+            success: false,
+            error: restoreResult.error,
+          };
+        }
+
         return {
-          success: false,
-          error: restoreResult.error,
+          success: true,
+          path: tempPath,
         };
       }
-
-      return {
-        success: true,
-        path: tempPath,
-      };
     } catch (error) {
       console.error('Failed to decrypt media for viewing:', error);
       return {

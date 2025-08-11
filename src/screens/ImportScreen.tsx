@@ -23,6 +23,7 @@ import { PermissionsUtil } from '../utils/permissions';
 import { COLORS } from '../utils/constants';
 import { MediaItem, ImportProgress } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface ImportScreenProps {
   onBack: () => void;
@@ -140,6 +141,7 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const [mediaService] = useState(() => MediaService.getInstance());
+  const { showProgress, updateProgress, hideNotification, showSuccess, showError } = useNotification();
   const { width } = Dimensions.get('window');
   const itemSize = (width - 48) / 3; // 3 columns with 16px padding and 8px gaps
 
@@ -235,6 +237,8 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
     setShowConfirmDialog(false);
     setIsImporting(true);
 
+    let progressNotificationId: string | null = null;
+
     try {
       // Convert selected items to MediaItem format
       const selectedMediaItems: MediaItem[] = galleryItems
@@ -251,16 +255,64 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBack, onImportComplete })
       // Import with progress tracking
       const result = await mediaService.importMediaItems(selectedMediaItems, (progress) => {
         setImportProgress(progress);
+        console.log('ImportScreen - Import progress:', progress);
+        
+        // Show progress notification for video uploads
+        const isVideo = progress.currentFileName?.toLowerCase().match(/\.(mp4|mov|avi|mkv|webm|m4v|3gp|flv)$/i) || 
+                       progress.status === 'streaming';
+        
+        if (isVideo) {
+          if (!progressNotificationId) {
+            progressNotificationId = showProgress(
+              `Uploading ${progress.currentFileName}`,
+              progress.streamProgress,
+              progress.phase === 'reading' ? 'Reading video...' :
+              progress.phase === 'encrypting' ? 'Encrypting...' :
+              progress.phase === 'writing' ? 'Writing to vault...' :
+              `${progress.currentChunk}/${progress.totalChunks} chunks`
+            );
+          } else {
+            updateProgress(
+              progressNotificationId,
+              progress.streamProgress || 0,
+              progress.phase === 'reading' ? 'Reading video...' :
+              progress.phase === 'encrypting' ? 'Encrypting...' :
+              progress.phase === 'writing' ? 'Writing to vault...' :
+              `${progress.currentChunk}/${progress.totalChunks} chunks`
+            );
+          }
+        }
+        
+        // Hide progress notification when complete
+        if (progress.status === 'completed' && progressNotificationId) {
+          hideNotification(progressNotificationId);
+          progressNotificationId = null;
+        }
       });
 
+      // Clean up progress notification
+      if (progressNotificationId) {
+        hideNotification(progressNotificationId);
+        progressNotificationId = null;
+      }
+
       if (result.success) {
+        if (result.imported > 0) {
+          showSuccess(`Successfully imported ${result.imported} ${result.imported === 1 ? 'item' : 'items'}`);
+        }
         onImportComplete();
       } else {
-        Alert.alert('Import Failed', 'Failed to import media items.');
+        showError('Failed to import media items');
       }
     } catch (error) {
       console.error('Import failed:', error);
-      Alert.alert('Import Failed', 'An error occurred during import.');
+      
+      // Clean up progress notification on error
+      if (progressNotificationId) {
+        hideNotification(progressNotificationId);
+      }
+      
+      showError('An error occurred during import');
     } finally {
       setIsImporting(false);
       setImportProgress(null);

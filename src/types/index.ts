@@ -54,7 +54,14 @@ export interface ImportProgress {
   current: number;
   total: number;
   currentFileName: string;
-  status: 'encrypting' | 'moving' | 'generating_thumbnail' | 'completed' | 'error';
+  status: 'processing' | 'encrypting' | 'streaming' | 'reading' | 'writing' | 'moving' | 'generating_thumbnail' | 'completed' | 'error';
+  // Video streaming specific
+  bytesTransferred?: number;
+  totalBytes?: number;
+  streamProgress?: number; // 0-100 for current file
+  currentChunk?: number;
+  totalChunks?: number;
+  phase?: 'reading' | 'encrypting' | 'writing' | 'complete';
 }
 
 export interface AuthState {

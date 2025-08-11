@@ -35,7 +35,7 @@ type ScreenMode = 'home' | 'folders' | 'trash' | 'settings';
 
 const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
   const { colors, toggleTheme, theme } = useTheme();
-  const { showSuccessWithConfetti, showSuccess, showError, showInfo, showWarning } = useNotification();
+  const { showSuccessWithConfetti, showSuccess, showError, showWarning, showProgress, updateProgress, hideNotification } = useNotification();
   const { showAlert, AlertComponent } = useCustomAlert();
   
   // Image modals state
@@ -162,6 +162,7 @@ const handleCloseImageDetails = useCallback(() => {
 
 
   const handleImportPress = useCallback(async () => {
+    let progressNotificationId: string | null = null;
 
     try {
       logInfo('VaultScreen', 'Import started - user clicked import button');
@@ -202,8 +203,54 @@ const handleCloseImageDetails = useCallback(() => {
       
       logInfo('VaultScreen', 'Calling mediaService.importFromGallery...');
       
-      // Direct import using image picker
-      const result = await mediaService.importFromGallery();
+      // Direct import using image picker with progress tracking
+      const result = await mediaService.importFromGallery((progress) => {
+        console.log('VaultScreen - Import progress:', progress);
+        
+        // Show progress notification for video uploads (check file extension or streaming status)
+        const isVideo = progress.currentFileName?.toLowerCase().match(/\.(mp4|mov|avi|mkv|webm|m4v|3gp|flv)$/i) || 
+                       progress.status === 'streaming';
+        
+        if (isVideo) {
+          console.log('VaultScreen - Showing video progress notification');
+          
+          if (!progressNotificationId) {
+            const progressPercentage = progress.streamProgress || 
+                                    (progress.current / progress.total * 100) || 0;
+            
+            progressNotificationId = showProgress(
+              `Uploading ${progress.currentFileName || 'video'}`,
+              progressPercentage,
+              progress.phase === 'reading' ? 'Reading video...' :
+              progress.phase === 'encrypting' ? 'Encrypting...' :
+              progress.phase === 'writing' ? 'Writing to vault...' :
+              progress.status === 'streaming' && progress.totalChunks ? 
+                `${progress.currentChunk}/${progress.totalChunks} chunks` :
+              `Processing video...`
+            );
+          } else {
+            const progressPercentage = progress.streamProgress || 
+                                    (progress.current / progress.total * 100) || 0;
+                                    
+            updateProgress(
+              progressNotificationId,
+              progressPercentage,
+              progress.phase === 'reading' ? 'Reading video...' :
+              progress.phase === 'encrypting' ? 'Encrypting...' :
+              progress.phase === 'writing' ? 'Writing to vault...' :
+              progress.status === 'streaming' && progress.totalChunks ? 
+                `${progress.currentChunk}/${progress.totalChunks} chunks` :
+              `Processing video...`
+            );
+          }
+        }
+        
+        // Hide progress notification when complete
+        if (progress.status === 'completed' && progressNotificationId) {
+          hideNotification(progressNotificationId);
+          progressNotificationId = null;
+        }
+      });
 
       logInfo('VaultScreen', 'Import result received', { success: result.success, imported: result.imported, errors: result.errors });
 
@@ -223,11 +270,6 @@ const handleCloseImageDetails = useCallback(() => {
               }
             }
           );
-        } else {
-          // No items imported (could be duplicates or user canceled)
-          if (!result.errors.some(err => err.includes('cancelled') || err.includes('canceled'))) {
-            showInfo('No new items to import - all selected items are already in your vault');
-          }
         }
       } else {
         // Only show error if there are actual import errors (not user cancellation)
@@ -240,8 +282,19 @@ const handleCloseImageDetails = useCallback(() => {
           });
         }
       }
+      
+      // Clean up progress notification on any exit
+      if (progressNotificationId) {
+        hideNotification(progressNotificationId);
+      }
     } catch (error) {
       logError('VaultScreen', 'Import failed', error);
+      
+      // Clean up progress notification on error
+      if (progressNotificationId) {
+        hideNotification(progressNotificationId);
+      }
+      
       showError(
         `Import failed: ${error instanceof Error ? error.message : 'An unexpected error occurred'}`,
         {
@@ -372,9 +425,6 @@ const handleCloseImageDetails = useCallback(() => {
   }, []);
 
   const renderHeader = () => {
-    const stats = mediaService.getVaultStats();
-    const showStats = currentScreen === 'home';
-    
     return (
       <View style={[styles.header, { backgroundColor: colors.vaultBackground }]}>
         <View style={styles.headerContent}>
@@ -452,62 +502,68 @@ const handleCloseImageDetails = useCallback(() => {
     </View>
   );
 
-  const renderFAB = () => {
-    // Only show FAB on home screen
-    if (currentScreen !== 'home') return null;
-    
-    return (
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.vaultAccent }]}
-        onPress={handleImportPress}
-      >
-        <Icon name="add" size={24} color={colors.surface} />
-      </TouchableOpacity>
-    );
-  };
 
   const renderBottomNav = () => {
     const tabs = [
-      { key: 'home', label: 'Home', icon: 'home', activeIcon: 'home' },
-      { key: 'folders', label: 'Folders', icon: 'folder', activeIcon: 'folder' },
-      { key: 'trash', label: 'Trash', icon: 'delete', activeIcon: 'delete' },
-      { key: 'settings', label: 'Vault', icon: 'settings', activeIcon: 'settings' },
+      { key: 'home', label: 'Home', icon: 'home' },
+      { key: 'folders', label: 'Folders', icon: 'folder' },
+    ];
+    
+    const rightTabs = [
+      { key: 'trash', label: 'Trash', icon: 'delete' },
+      { key: 'settings', label: 'Vault', icon: 'settings' },
     ];
 
     return (
       <View style={[styles.bottomNav, { backgroundColor: colors.vaultSurface }]}>
-        <View style={[styles.navContainer]}>
+        <View style={styles.navContainer}>
           {tabs.map((tab) => {
             const isActive = currentScreen === tab.key;
             return (
               <TouchableOpacity
                 key={tab.key}
-                style={[
-                  styles.navTab, 
-                  isActive && { 
-                    backgroundColor: colors.vaultAccent,
-                    shadowColor: colors.vaultAccent,
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 4,
-                    elevation: 3,
-                  }
-                ]}
+                style={styles.navTab}
                 onPress={() => setCurrentScreen(tab.key as ScreenMode)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.navIconContainer, isActive && styles.activeNavIcon, { opacity: isActive ? 1 : 0.6 }]}>
-                  <Icon 
-                    name={tab.icon} 
-                    size={22} 
-                    color={isActive ? colors.surface : colors.textSecondary} 
-                  />
-                </View>
-                {isActive && (
-                  <Text style={[styles.navTabLabel, { color: colors.surface }]}>
-                    {tab.label}
-                  </Text>
-                )}
+                <Icon 
+                  name={tab.icon} 
+                  size={22} 
+                  color={isActive ? colors.vaultAccent : colors.textSecondary} 
+                />
+                <Text style={[styles.navTabLabel, { color: isActive ? colors.vaultAccent : colors.textSecondary }]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          
+          {/* Upload button in the middle */}
+          <TouchableOpacity
+            style={[styles.uploadButton, { backgroundColor: colors.vaultAccent }]}
+            onPress={handleImportPress}
+            activeOpacity={0.8}
+          >
+            <Icon name="add" size={24} color={colors.surface} />
+          </TouchableOpacity>
+          
+          {rightTabs.map((tab) => {
+            const isActive = currentScreen === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={styles.navTab}
+                onPress={() => setCurrentScreen(tab.key as ScreenMode)}
+                activeOpacity={0.7}
+              >
+                <Icon 
+                  name={tab.icon} 
+                  size={22} 
+                  color={isActive ? colors.vaultAccent : colors.textSecondary} 
+                />
+                <Text style={[styles.navTabLabel, { color: isActive ? colors.vaultAccent : colors.textSecondary }]}>
+                  {tab.label}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -580,7 +636,6 @@ const handleCloseImageDetails = useCallback(() => {
       
       {renderCurrentScreen()}
       
-      {!isSelectionMode && !isViewerOpen && renderFAB()}
       
       {!isViewerOpen && renderBottomNav()}
       
@@ -746,21 +801,19 @@ const styles = StyleSheet.create({
     color: COLORS.surface,
     marginLeft: 8,
   },
-  fab: {
-    position: 'absolute',
-    right: 16,
-    bottom: 100, // Moved up to account for bottom nav
+  uploadButton: {
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: COLORS.vaultAccent,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
+    elevation: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowRadius: 6,
+    marginHorizontal: 8,
   },
   screenContent: {
     flex: 1,
@@ -777,29 +830,20 @@ const styles = StyleSheet.create({
   },
   navContainer: {
     flexDirection: 'row',
-    borderRadius: 24,
-    padding: 3,
+    alignItems: 'center',
     justifyContent: 'space-around',
   },
   navTab: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
     minHeight: 44,
   },
-  navIconContainer: {
-    marginRight: 0,
-  },
-  activeNavIcon: {
-    marginRight: 8,
-  },
   navTabLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
   },
 });
 

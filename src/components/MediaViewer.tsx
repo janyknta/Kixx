@@ -23,6 +23,7 @@ import { MediaService } from '../services/MediaService';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
+import VideoPlayer from './VideoPlayer';
 
 interface MediaViewerProps {
   item: VaultItem;
@@ -241,26 +242,22 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose, onItemDeleted,
         ]}
         {...panResponder.panHandlers}
       >
-        {item.type === 'video' ? (
-          <View style={[styles.media, styles.videoUnsupported]}>
-            <Icon name="videocam-off" size={48} color={COLORS.textSecondary} />
-            <Text style={styles.videoUnsupportedText}>
-              Video playback is not supported
-            </Text>
-          </View>
-        ) : (
-          <Image
-            source={{ uri: `file://${decryptedPath}` }}
-            style={styles.media}
-            resizeMode="contain"
-            onError={() => {
-              console.error('Image display failed');
-            }}
-          />
-        )}
+        <Image
+          source={{ uri: `file://${decryptedPath}` }}
+          style={styles.media}
+          resizeMode="contain"
+          onError={() => {
+            console.error('Image display failed');
+          }}
+        />
       </Animated.View>
     );
   };
+
+  // If it's a video, use the dedicated VideoPlayer
+  if (item.type === 'video') {
+    return <VideoPlayer vaultItem={item} onClose={onClose} />;
+  }
 
   return (
     <View style={styles.container}>
@@ -360,17 +357,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
-  },
-  videoUnsupported: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  videoUnsupportedText: {
-    color: COLORS.textSecondary,
-    fontSize: 16,
-    marginTop: 16,
-    textAlign: 'center',
   },
 });
 

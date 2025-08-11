@@ -5,12 +5,18 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 export interface NotificationData {
   id: string;
   message: string;
-  type: 'success' | 'error' | 'info' | 'warning';
+  type: 'success' | 'error' | 'info' | 'warning' | 'progress';
   duration?: number;
   action?: {
     label: string;
     onPress: () => void;
   };
+  // Progress-specific properties
+  progress?: number; // 0-100
+  progressText?: string;
+  isIndeterminate?: boolean;
+  isPersistent?: boolean; // Won't auto-dismiss
+  onCancel?: () => void; // Cancel button for progress notifications
 }
 
 interface NotificationContextType {
@@ -20,6 +26,8 @@ interface NotificationContextType {
   showInfo: (message: string, action?: NotificationData['action']) => void;
   showWarning: (message: string, action?: NotificationData['action']) => void;
   showSuccessWithConfetti: (message: string, action?: NotificationData['action']) => void;
+  showProgress: (message: string, progress?: number, progressText?: string, onCancel?: () => void) => string;
+  updateProgress: (id: string, progress: number, progressText?: string) => void;
   hideNotification: (id: string) => void;
   notifications: NotificationData[];
   confettiVisible: boolean;
@@ -49,10 +57,12 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
 
     setNotifications(prev => [newNotification, ...prev]);
 
-    // Auto-remove after duration
-    setTimeout(() => {
-      hideNotification(id);
-    }, newNotification.duration + 500); // Extra buffer for hide animation
+    // Auto-remove after duration (unless it's persistent)
+    if (!newNotification.isPersistent) {
+      setTimeout(() => {
+        hideNotification(id);
+      }, newNotification.duration + 500); // Extra buffer for hide animation
+    }
   };
 
   const showSuccess = (message: string, action?: NotificationData['action']) => {
@@ -103,6 +113,30 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
     }, 3500);
   };
 
+  const showProgress = (message: string, progress?: number, progressText?: string, onCancel?: () => void): string => {
+    const id = generateId();
+    const newNotification: NotificationData = {
+      id,
+      message,
+      type: 'progress',
+      progress: progress || 0,
+      progressText,
+      isPersistent: true,
+      onCancel,
+    };
+
+    setNotifications(prev => [newNotification, ...prev]);
+    return id;
+  };
+
+  const updateProgress = (id: string, progress: number, progressText?: string) => {
+    setNotifications(prev => prev.map(notification => 
+      notification.id === id 
+        ? { ...notification, progress, progressText }
+        : notification
+    ));
+  };
+
   const hideNotification = (id: string) => {
     setNotifications(prev => prev.filter(notification => notification.id !== id));
   };
@@ -114,6 +148,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
     showInfo,
     showWarning,
     showSuccessWithConfetti,
+    showProgress,
+    updateProgress,
     hideNotification,
     notifications,
     confettiVisible,
