@@ -76,28 +76,34 @@ export class VideoStreamService {
         const actualChunkSize = end - start;
 
         // Report progress - reading phase
+        const readingProgress = Math.round((processedBytes / fileSize) * 100);
         progressCallback?.({
           bytesProcessed: processedBytes,
           totalBytes: fileSize,
-          progress: Math.round((processedBytes / fileSize) * 100),
+          progress: readingProgress,
           currentChunk: chunkIndex + 1,
           totalChunks,
           phase: 'reading'
         });
+        
+        console.log(`VideoStreamService: Reading chunk ${chunkIndex + 1}/${totalChunks} (${readingProgress}%)`);
 
         try {
           // Read chunk using streaming
           const chunkData = await this.readVideoChunk(sourcePath, start, actualChunkSize);
           
           // Report progress - encrypting phase
+          const encryptingProgress = Math.round(((processedBytes + actualChunkSize * 0.3) / fileSize) * 100);
           progressCallback?.({
-            bytesProcessed: processedBytes,
+            bytesProcessed: processedBytes + actualChunkSize * 0.3,
             totalBytes: fileSize,
-            progress: Math.round((processedBytes / fileSize) * 100),
+            progress: encryptingProgress,
             currentChunk: chunkIndex + 1,
             totalChunks,
             phase: 'encrypting'
           });
+          
+          console.log(`VideoStreamService: Encrypting chunk ${chunkIndex + 1}/${totalChunks} (${encryptingProgress}%)`);
 
           // Encrypt chunk
           const encryptResult = cryptoService.encryptFile(chunkData);
@@ -106,14 +112,17 @@ export class VideoStreamService {
           }
 
           // Report progress - writing phase
+          const writingProgress = Math.round(((processedBytes + actualChunkSize * 0.7) / fileSize) * 100);
           progressCallback?.({
-            bytesProcessed: processedBytes,
+            bytesProcessed: processedBytes + actualChunkSize * 0.7,
             totalBytes: fileSize,
-            progress: Math.round((processedBytes / fileSize) * 100),
+            progress: writingProgress,
             currentChunk: chunkIndex + 1,
             totalChunks,
             phase: 'writing'
           });
+          
+          console.log(`VideoStreamService: Writing encrypted chunk ${chunkIndex + 1}/${totalChunks} (${writingProgress}%)`);
 
           // Append encrypted chunk to temp file
           await this.appendEncryptedChunk(tempVaultPath, encryptResult.encryptedData, chunkIndex === 0);
@@ -257,18 +266,24 @@ export class VideoStreamService {
         phase: 'reading'
       });
       
+      console.log('VideoStreamService: Starting to read encrypted file for decryption');
+      
       // Read entire encrypted file
       const encryptedData = await RNFS.readFile(encryptedPath, 'utf8');
       
-      // Report progress - decrypting
+      console.log(`VideoStreamService: Read ${encryptedData.length} characters of encrypted data`);
+      
+      // Report progress - parsing/decrypting
       progressCallback?.({
-        bytesProcessed: encryptedSize / 2,
+        bytesProcessed: encryptedSize * 0.3,
         totalBytes: encryptedSize,
-        progress: 50,
+        progress: 30,
         currentChunk: 1,
         totalChunks: 1,
         phase: 'reading'
       });
+      
+      console.log('VideoStreamService: Starting chunk parsing and decryption');
       
       // Parse and decrypt chunks
       const decryptedChunks = await this.parseAndDecryptChunks(encryptedData, cryptoService, progressCallback);
@@ -281,13 +296,15 @@ export class VideoStreamService {
 
       // Report progress - writing
       progressCallback?.({
-        bytesProcessed: encryptedSize * 0.8,
+        bytesProcessed: encryptedSize * 0.9,
         totalBytes: encryptedSize,
-        progress: 80,
+        progress: 90,
         currentChunk: 1,
         totalChunks: 1,
         phase: 'writing'
       });
+      
+      console.log('VideoStreamService: Writing decrypted chunks to output file');
 
       // Write chunks sequentially to output file
       await this.writeDecryptedChunksToFile(outputPath, decryptedChunks.data);
@@ -390,15 +407,18 @@ export class VideoStreamService {
         }
         decryptedChunks.push(decryptResult.decryptedData);
         
-        // Report progress
+        // Report progress during decryption
+        const decryptProgress = Math.round(30 + ((i + 1) / chunks.length) * 50); // 30-80% range for chunk decryption
         progressCallback?.({
-          bytesProcessed: ((i + 1) / chunks.length) * 0.3,
-          totalBytes: 1,
-          progress: Math.round(((i + 1) / chunks.length) * 30),
+          bytesProcessed: (i + 1) / chunks.length,
+          totalBytes: chunks.length,
+          progress: decryptProgress,
           currentChunk: i + 1,
           totalChunks: chunks.length,
-          phase: 'reading'
+          phase: chunks.length > 1 ? 'reading' : 'reading' // Use 'reading' consistently but show chunk info
         });
+        
+        console.log(`VideoStreamService: Decrypted chunk ${i + 1}/${chunks.length} (${decryptProgress}%)`);
       }
       
       // For React Native, we need to write chunks directly to file instead of combining base64

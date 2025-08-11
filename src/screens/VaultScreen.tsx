@@ -221,12 +221,12 @@ const handleCloseImageDetails = useCallback(() => {
             progressNotificationId = showProgress(
               `Uploading ${progress.currentFileName || 'video'}`,
               progressPercentage,
-              progress.phase === 'reading' ? 'Reading video...' :
-              progress.phase === 'encrypting' ? 'Encrypting...' :
-              progress.phase === 'writing' ? 'Writing to vault...' :
+              progress.phase === 'reading' ? `Reading video file... (${Math.round(progressPercentage)}%)` :
+              progress.phase === 'encrypting' ? `Encrypting data... (${Math.round(progressPercentage)}%)` :
+              progress.phase === 'writing' ? `Writing to secure vault... (${Math.round(progressPercentage)}%)` :
               progress.status === 'streaming' && progress.totalChunks ? 
-                `${progress.currentChunk}/${progress.totalChunks} chunks` :
-              `Processing video...`
+                `Processing chunk ${progress.currentChunk}/${progress.totalChunks} (${Math.round(progressPercentage)}%)` :
+              `Processing video... (${Math.round(progressPercentage)}%)`
             );
           } else {
             const progressPercentage = progress.streamProgress || 
@@ -235,12 +235,12 @@ const handleCloseImageDetails = useCallback(() => {
             updateProgress(
               progressNotificationId,
               progressPercentage,
-              progress.phase === 'reading' ? 'Reading video...' :
-              progress.phase === 'encrypting' ? 'Encrypting...' :
-              progress.phase === 'writing' ? 'Writing to vault...' :
+              progress.phase === 'reading' ? `Reading video file... (${Math.round(progressPercentage)}%)` :
+              progress.phase === 'encrypting' ? `Encrypting data... (${Math.round(progressPercentage)}%)` :
+              progress.phase === 'writing' ? `Writing to secure vault... (${Math.round(progressPercentage)}%)` :
               progress.status === 'streaming' && progress.totalChunks ? 
-                `${progress.currentChunk}/${progress.totalChunks} chunks` :
-              `Processing video...`
+                `Processing chunk ${progress.currentChunk}/${progress.totalChunks} (${Math.round(progressPercentage)}%)` :
+              `Processing video... (${Math.round(progressPercentage)}%)`
             );
           }
         }

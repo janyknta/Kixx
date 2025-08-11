@@ -35,10 +35,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekTime, setSeekTime] = useState(0);
+  const [decryptionProgress, setDecryptionProgress] = useState<{
+    phase: string;
+    progress: number;
+    currentChunk?: number;
+    totalChunks?: number;
+  } | null>(null);
   
   const videoRef = useRef<VideoRef>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const mediaService = new MediaService();
+  const mediaService = MediaService.getInstance();
 
   React.useEffect(() => {
     loadVideoForPlayback();
@@ -53,23 +59,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
     try {
       setIsLoading(true);
       setError(null);
+      setDecryptionProgress(null);
       
       console.log('VideoPlayer: Loading video for playback:', vaultItem.originalName);
       
-      const result = await mediaService.getMediaForViewing(vaultItem, (progress) => {
+      const result = await mediaService.getMediaForViewing(vaultItem, (progress: any) => {
         console.log('VideoPlayer: Decryption progress:', progress);
+        setDecryptionProgress({
+          phase: progress.phase || 'reading',
+          progress: progress.progress || 0,
+          currentChunk: progress.currentChunk,
+          totalChunks: progress.totalChunks
+        });
       });
       
       if (result.success && result.path) {
         console.log('VideoPlayer: Video loaded successfully:', result.path);
         setVideoUri(`file://${result.path}`);
+        setDecryptionProgress(null); // Clear progress when done
       } else {
         console.error('VideoPlayer: Failed to load video:', result.error);
         setError(result.error || 'Failed to load video');
+        setDecryptionProgress(null);
       }
     } catch (error) {
       console.error('VideoPlayer: Error loading video:', error);
       setError('Failed to load video for playback');
+      setDecryptionProgress(null);
     } finally {
       setIsLoading(false);
     }
@@ -209,9 +225,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
         
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>
-            Loading video...
-          </Text>
+          
+          {decryptionProgress ? (
+            <View style={styles.progressContainer}>
+              <Text style={styles.loadingText}>
+                {decryptionProgress.phase === 'reading' ? 'Reading encrypted video...' :
+                 decryptionProgress.phase === 'writing' ? 'Writing decrypted video...' :
+                 decryptionProgress.phase === 'complete' ? 'Finalizing...' :
+                 'Decrypting video...'}
+              </Text>
+              
+              <View style={styles.progressBarContainer}>
+                <View style={styles.progressBarBackground}>
+                  <View 
+                    style={[
+                      styles.progressBarFill, 
+                      { width: `${Math.max(0, Math.min(100, decryptionProgress.progress))}%` }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.progressText}>
+                  {Math.round(decryptionProgress.progress)}%
+                </Text>
+              </View>
+              
+              {decryptionProgress.totalChunks && decryptionProgress.totalChunks > 1 && (
+                <Text style={styles.chunkText}>
+                  Chunk {decryptionProgress.currentChunk || 1} of {decryptionProgress.totalChunks}
+                </Text>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.loadingText}>
+              Loading video...
+            </Text>
+          )}
         </View>
         
         <TouchableOpacity style={[styles.backButton, { position: 'absolute', top: 50, left: 16 }]} onPress={handleClose}>
@@ -369,6 +417,45 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 16,
     color: '#ffffff',
+    textAlign: 'center',
+  },
+  progressContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+    width: '100%',
+    paddingHorizontal: 32,
+  },
+  progressBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    width: '100%',
+  },
+  progressBarBackground: {
+    flex: 1,
+    height: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 4,
+    marginRight: 16,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: 4,
+    minWidth: 2,
+  },
+  progressText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  chunkText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 8,
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,

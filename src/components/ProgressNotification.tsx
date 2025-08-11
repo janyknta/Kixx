@@ -35,17 +35,18 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Show animation from bottom
+      // Show animation from bottom (iOS-style)
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
-          damping: 15,
-          stiffness: 150,
+          damping: 18,
+          stiffness: 200,
+          mass: 0.8,
           useNativeDriver: true,
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
-          duration: 300,
+          duration: 200,
           useNativeDriver: true,
         }),
       ]).start();
@@ -58,12 +59,12 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: 100, // Hide to bottom
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -110,7 +111,7 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
           <View style={[styles.iconContainer, { backgroundColor: `${colors.vaultAccent}20` }]}>
             <Icon 
               name="cloud-upload" 
-              size={24} 
+              size={20} 
               color={colors.vaultAccent} 
             />
           </View>
@@ -162,7 +163,7 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
             >
               <Icon 
                 name="close" 
-                size={20} 
+                size={18} 
                 color={colors.textSecondary} 
               />
             </TouchableOpacity>
@@ -179,68 +180,68 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: Platform.OS === 'ios' ? 100 : 80, // Above bottom navigation/safe area
-    left: 16,
-    right: 16,
+    left: 20,
+    right: 20,
     zIndex: 99999,
     elevation: 50,
   },
   blurContainer: {
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
   },
   notification: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 2,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 50,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 8,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   content: {
     flex: 1,
   },
   message: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   progressContainer: {
-    marginBottom: 4,
+    marginBottom: 2,
   },
   progressBackground: {
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 3,
-    minWidth: 6, // Minimum width to show some progress
+    borderRadius: 2,
+    minWidth: 4,
   },
   progressText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    marginTop: 4,
+    marginTop: 2,
   },
   cancelButton: {
-    padding: 8,
-    marginLeft: 8,
-    borderRadius: 16,
+    padding: 6,
+    marginLeft: 6,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },

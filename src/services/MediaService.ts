@@ -794,7 +794,7 @@ export class MediaService {
    */
   public async getMediaForViewing(
     vaultItem: VaultItem,
-    progressCallback?: (progress: { phase: string; progress: number }) => void
+    progressCallback?: (progress: { phase: string; progress: number; currentChunk?: number; totalChunks?: number }) => void
   ): Promise<{ success: boolean; path?: string; error?: string }> {
     try {
       console.log(`getMediaForViewing - Processing ${vaultItem.type}: ${vaultItem.originalName} (${vaultItem.size} bytes)`);
@@ -816,9 +816,12 @@ export class MediaService {
           tempPath,
           this.cryptoService,
           (streamProgress) => {
+            console.log('MediaService - Stream decryption progress:', streamProgress);
             progressCallback?.({
               phase: streamProgress.phase,
-              progress: streamProgress.progress
+              progress: streamProgress.progress,
+              currentChunk: streamProgress.currentChunk,
+              totalChunks: streamProgress.totalChunks
             });
           }
         );
