@@ -44,31 +44,23 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
       case 'success':
         return {
           icon: 'check-circle',
-          backgroundColor: colors.success,
-          iconColor: colors.surface,
-          textColor: colors.surface,
+          iconColor: '#00C851',
         };
       case 'error':
         return {
           icon: 'error',
-          backgroundColor: colors.danger,
-          iconColor: colors.surface,
-          textColor: colors.surface,
+          iconColor: '#FF4444',
         };
       case 'warning':
         return {
           icon: 'warning',
-          backgroundColor: colors.warning,
-          iconColor: colors.surface,
-          textColor: colors.surface,
+          iconColor: '#FFBB33',
         };
       case 'info':
       default:
         return {
           icon: 'info',
-          backgroundColor: colors.info,
-          iconColor: colors.surface,
-          textColor: colors.surface,
+          iconColor: '#33B5E5',
         };
     }
   };
@@ -77,23 +69,25 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Show animation
+      // Show animation (iOS-style)
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
-          damping: 15,
-          stiffness: 150,
+          damping: 18,
+          stiffness: 200,
+          mass: 0.8,
           useNativeDriver: true,
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
-          duration: 300,
+          duration: 200,
           useNativeDriver: true,
         }),
         Animated.spring(scaleAnim, {
           toValue: 1,
-          damping: 12,
-          stiffness: 100,
+          damping: 15,
+          stiffness: 180,
+          mass: 0.8,
           useNativeDriver: true,
         }),
       ]).start();
@@ -119,17 +113,17 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -100,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
       Animated.timing(scaleAnim, {
         toValue: 0.8,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -137,7 +131,7 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
     });
   };
 
-  if (!visible && slideAnim._value === -100) {
+  if (!visible) {
     return null;
   }
 
@@ -158,21 +152,22 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
         style={styles.blurContainer}
         blurType={theme === 'dark' ? 'dark' : 'light'}
         blurAmount={20}
+        reducedTransparencyFallbackColor="rgba(0, 0, 0, 0.8)"
       >
         <View
           style={[
             styles.toast,
             {
               backgroundColor: Platform.OS === 'ios' ? 
-                `${config.backgroundColor}95` : config.backgroundColor,
+                'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.85)',
             },
           ]}
         >
           {/* Icon */}
-          <View style={[styles.iconContainer, { backgroundColor: `${config.backgroundColor}20` }]}>
+          <View style={[styles.iconContainer, { backgroundColor: `${config.iconColor}20` }]}>
             <Icon 
               name={config.icon} 
-              size={24} 
+              size={18} 
               color={config.iconColor} 
             />
           </View>
@@ -180,7 +175,7 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
           {/* Content */}
           <View style={styles.content}>
             <Text 
-              style={[styles.message, { color: config.textColor }]}
+              style={[styles.message, { color: 'white' }]}
               numberOfLines={2}
             >
               {message}
@@ -191,33 +186,13 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({
           {action && (
             <View style={styles.actionContainer}>
               <Text
-                style={[styles.actionText, { color: config.textColor }]}
+                style={[styles.actionText, { color: 'rgba(255, 255, 255, 0.8)' }]}
                 onPress={action.onPress}
               >
                 {action.label}
               </Text>
             </View>
           )}
-
-          {/* Progress Bar */}
-          <Animated.View
-            style={[
-              styles.progressBar,
-              {
-                backgroundColor: `${config.textColor}30`,
-              },
-            ]}
-          >
-            <Animated.View
-              style={[
-                styles.progressFill,
-                {
-                  backgroundColor: config.textColor,
-                  width: `${100}%`, // Will be animated based on duration
-                },
-              ]}
-            />
-          </Animated.View>
         </View>
       </BlurView>
     </Animated.View>
@@ -229,71 +204,57 @@ const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 20,
+    top: Platform.OS === 'ios' ? 60 : 30,
     left: 16,
     right: 16,
-    zIndex: 99999, // Very high z-index to appear above all overlays
-    elevation: 50, // High elevation for Android
+    zIndex: 99999,
+    elevation: 50,
   },
   blurContainer: {
-    borderRadius: 16,
+    borderRadius: 25,
     overflow: 'hidden',
   },
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    minHeight: 64,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 25,
+    minHeight: 44,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 1,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 50, // High elevation to appear above overlays
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 6,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 8,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
   },
   message: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: 16,
   },
   actionContainer: {
-    marginLeft: 8,
-    paddingHorizontal: 8,
+    marginLeft: 6,
+    paddingHorizontal: 6,
   },
   actionText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     textDecorationLine: 'underline',
-  },
-  progressBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-  },
-  progressFill: {
-    height: '100%',
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
   },
 });
 

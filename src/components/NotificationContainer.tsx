@@ -26,7 +26,7 @@ const NotificationContainer: React.FC = () => {
             key={notification.id}
             style={{
               position: 'absolute',
-              top: index * 80, // Stack notifications vertically
+              top: index * 60, // Stack notifications vertically (reduced spacing for compact design)
               left: 0,
               right: 0,
               zIndex: 99999 - index, // Ensure proper stacking order with very high z-index
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   },
   notificationsContainer: {
     position: 'absolute',
-    top: 60, // Start below status bar
+    top: 50, // Start below status bar (closer like Dynamic Island)
     left: 0,
     right: 0,
     zIndex: 99999, // Much higher z-index
