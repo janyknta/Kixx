@@ -605,11 +605,11 @@ export class MediaService {
    */
   private async generateThumbnail(vaultItem: VaultItem): Promise<{ success: boolean; path?: string; error?: string }> {
     try {
-      // Generate thumbnails for images and videos
-      if (vaultItem.type !== 'image' && vaultItem.type !== 'video') {
+      // Generate thumbnails for images only (not videos)
+      if (vaultItem.type !== 'image') {
         return {
           success: false,
-          error: 'Thumbnails only supported for images and videos',
+          error: 'Thumbnails only supported for images',
         };
       }
       

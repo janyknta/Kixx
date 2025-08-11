@@ -24,10 +24,10 @@ export const VAULT_CONFIG = {
   DEFAULT_GRID_SIZE: 'medium' as const,
   MAX_FILE_SIZE: 500 * 1024 * 1024, // 500MB
   
-  // Video streaming settings
-  VIDEO_CHUNK_SIZE: 5 * 1024 * 1024, // 5MB chunks for streaming
+  // Video streaming settings - optimized for faster processing
+  VIDEO_CHUNK_SIZE: 2 * 1024 * 1024, // 2MB chunks for faster streaming
   MAX_VIDEO_SIZE: 2 * 1024 * 1024 * 1024, // 2GB max video size
-  STREAM_BUFFER_SIZE: 1024 * 1024, // 1MB buffer for reading
+  STREAM_BUFFER_SIZE: 512 * 1024, // 512KB buffer for reading
   VIDEO_COMPRESSION_QUALITY: 0.7, // Quality for video compression
   
   // Thumbnail settings

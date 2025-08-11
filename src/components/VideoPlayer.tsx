@@ -77,12 +77,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
 
   const onLoad = useCallback((data: OnLoadData) => {
     console.log('VideoPlayer: Video loaded with duration:', data.duration);
-    setDuration(data.duration);
+    // Validate duration before setting
+    if (data.duration && isFinite(data.duration) && data.duration > 0) {
+      setDuration(data.duration);
+    } else {
+      console.warn('VideoPlayer: Invalid duration received:', data.duration);
+      setDuration(0);
+    }
     setIsLoading(false);
   }, []);
 
   const onProgress = useCallback((data: OnProgressData) => {
-    setCurrentTime(data.currentTime);
+    // Validate currentTime before setting
+    if (data.currentTime && isFinite(data.currentTime) && data.currentTime >= 0) {
+      setCurrentTime(data.currentTime);
+    }
   }, []);
 
   const onError = useCallback((error: any) => {
@@ -107,6 +116,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
 
 
   const formatTime = useCallback((seconds: number) => {
+    // Handle invalid or NaN values
+    if (!seconds || !isFinite(seconds) || seconds < 0) {
+      return '0:00';
+    }
+    
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -264,8 +278,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
                 <Slider
                   style={styles.progressSlider}
                   minimumValue={0}
-                  maximumValue={duration}
-                  value={isSeeking ? seekTime : currentTime}
+                  maximumValue={Math.max(duration || 0, 1)} // Ensure minimum 1 second
+                  value={Math.min(
+                    Math.max(isSeeking ? seekTime : currentTime, 0),
+                    duration || 0
+                  )}
                   onSlidingStart={onSeekStart}
                   onValueChange={onSeekChange}
                   onSlidingComplete={onSeekComplete}
