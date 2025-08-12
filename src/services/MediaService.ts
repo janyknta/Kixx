@@ -205,7 +205,7 @@ export class MediaService {
         return {
           success: false,
           imported: 0,
-          errors: ['Authentication required. Please authenticate to import media.'],
+          errors: ['Authentication required'],
           duplicatesSkipped: 0,
         };
       }
@@ -312,7 +312,7 @@ export class MediaService {
         return {
           success: false,
           imported: 0,
-          errors: ['Authentication required. Master key not available for encryption.'],
+          errors: ['Authentication required'],
         };
       }
       
@@ -394,7 +394,7 @@ export class MediaService {
           return {
             success: false,
             imported: 0,
-            errors: ['Authentication required. Master key not available for encryption.'],
+          errors: ['Authentication required'],
           };
         }
         

@@ -32,6 +32,8 @@ const AppContent: React.FC = () => {
   const [mediaService] = useState(() => MediaService.getInstance());
   const appStateRef = useRef(AppState.currentState);
   const lastActiveTimeRef = useRef(Date.now());
+  const isAuthenticatedRef = useRef(false);
+  const isImportingRef = useRef(false);
 
   useEffect(() => {
     // Initialize last active time
@@ -70,15 +72,18 @@ const AppContent: React.FC = () => {
         if (restoreResult.success) {
           logInfo('App', 'Master key restored successfully');
           setIsAuthenticated(true);
+          isAuthenticatedRef.current = true;
         } else {
           logError('App', 'Failed to restore master key', restoreResult.error);
           // Force re-authentication if master key can't be restored
           await authService.logout();
           setIsAuthenticated(false);
+          isAuthenticatedRef.current = false;
         }
       } else {
         logInfo('App', 'No valid session found');
         setIsAuthenticated(false);
+        isAuthenticatedRef.current = false;
       }
 
       // Initialize permissions - only request once at startup
@@ -100,32 +105,91 @@ const AppContent: React.FC = () => {
 
   const setupAppStateListener = () => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      console.log('🔒 AppState changed:', appStateRef.current, '->', nextAppState);
       logDebug('App', 'App state changed', { from: appStateRef.current, to: nextAppState });
       
-      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-        // App is coming back to foreground from background
-        const timeInBackground = Date.now() - lastActiveTimeRef.current;
-        const maxAllowedInBackground = 10000; // 10 seconds - allows for image picker, etc.
-        
-        logInfo('App', 'App returning from background', { timeInBackground });
-        
-        // Only require re-authentication if app was in background for more than 10 seconds
-        // This prevents image picker and other brief native interactions from forcing logout
-        if (timeInBackground > maxAllowedInBackground) {
-          logInfo('App', 'App was in background too long - requiring PIN');
-          setIsAuthenticated(false);
-          
-          // Clear master key
-          const cryptoService = CryptoService.getInstance();
-          cryptoService.clearMasterKey();
-        } else {
-          logInfo('App', 'App was only briefly inactive - maintaining session');
-        }
-      } else if (nextAppState.match(/inactive|background/)) {
-        // App is going to background - record the time
+      // Smart logout: only logout immediately if not in the middle of importing
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('🔒 App going to background/inactive - checking import status');
         lastActiveTimeRef.current = Date.now();
-        logInfo('App', 'App going to background/inactive');
-        await handleAppBackground();
+        
+        // If importing, allow grace period for image picker
+        if (isImportingRef.current) {
+          logInfo('App', 'App backgrounded during import - allowing grace period for image picker', { 
+            currentState: appStateRef.current, 
+            nextState: nextAppState,
+            isImporting: isImportingRef.current
+          });
+          
+          // Just perform background cleanup, don't logout yet
+          await handleAppBackground();
+        } else {
+          logInfo('App', 'App going to background/inactive - forcing immediate logout for security', { 
+            currentState: appStateRef.current, 
+            nextState: nextAppState,
+            wasAuthenticated: isAuthenticatedRef.current
+          });
+          
+          try {
+            // Perform background cleanup
+            await handleAppBackground();
+            
+            // Force logout immediately
+            logInfo('App', 'Clearing session and master key for security');
+            const cryptoService = CryptoService.getInstance();
+            cryptoService.clearMasterKey();
+            await authService.logout();
+            
+            // Set authentication to false and update ref
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+            
+            logInfo('App', 'Security logout completed successfully');
+          } catch (error) {
+            logError('App', 'Error during security logout', error);
+            // Force logout anyway for security
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          }
+        }
+      }
+      
+      // When returning to active, check if we should logout based on import status and time
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        const timeInBackground = Date.now() - lastActiveTimeRef.current;
+        const maxAllowedForImport = 60000; // 1 minute for import operations
+        const maxAllowedNormal = 5000; // 5 seconds for normal operations
+        
+        logInfo('App', 'App returning to foreground - checking security requirements', { 
+          timeInBackground, 
+          wasImporting: isImportingRef.current,
+          maxAllowed: isImportingRef.current ? maxAllowedForImport : maxAllowedNormal
+        });
+        
+        // Determine if we should logout based on context
+        const shouldLogout = isImportingRef.current ? 
+          timeInBackground > maxAllowedForImport : 
+          timeInBackground > maxAllowedNormal;
+        
+        if (shouldLogout) {
+          logInfo('App', 'Time limit exceeded - forcing logout for security');
+          try {
+            const cryptoService = CryptoService.getInstance();
+            cryptoService.clearMasterKey();
+            await authService.logout();
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          } catch (error) {
+            logError('App', 'Error during foreground security check', error);
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          }
+        } else {
+          logInfo('App', 'App returned quickly - maintaining session');
+        }
+        
+        // Reset import flag when returning to foreground
+        isImportingRef.current = false;
       }
       
       appStateRef.current = nextAppState;
@@ -166,10 +230,12 @@ const AppContent: React.FC = () => {
       await mediaService.cleanupTrash();
       
       setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
     } catch (error) {
       logError('App', 'Post-authentication setup failed', error);
       // Continue anyway - this is not critical
       setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
     }
   };
 
@@ -177,11 +243,18 @@ const AppContent: React.FC = () => {
     try {
       await authService.logout();
       setIsAuthenticated(false);
+      isAuthenticatedRef.current = false;
     } catch (error) {
       logError('App', 'Logout failed', error);
       // Force logout anyway
       setIsAuthenticated(false);
+      isAuthenticatedRef.current = false;
     }
+  };
+
+  const setImportingFlag = (isImporting: boolean) => {
+    isImportingRef.current = isImporting;
+    console.log('🔒 Import flag set to:', isImporting);
   };
 
   if (isInitializing) {
@@ -198,7 +271,7 @@ const AppContent: React.FC = () => {
     <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
       <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
       {isAuthenticated ? (
-        <VaultScreen onLogout={handleLogout} />
+        <VaultScreen onLogout={handleLogout} setImportingFlag={setImportingFlag} />
       ) : (
         <AuthScreen onAuthenticated={handleAuthenticated} />
       )}

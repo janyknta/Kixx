@@ -29,11 +29,12 @@ import ImageDetailsModal from '../components/ImageDetailsModal';
 
 interface VaultScreenProps {
   onLogout: () => void;
+  setImportingFlag?: (isImporting: boolean) => void;
 }
 
 type ScreenMode = 'home' | 'folders' | 'trash' | 'settings';
 
-const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout }) => {
+const VaultScreen: React.FC<VaultScreenProps> = ({ onLogout, setImportingFlag }) => {
   const { colors, toggleTheme, theme } = useTheme();
   const { showSuccessWithConfetti, showSuccess, showError, showWarning, showProgress, updateProgress, hideNotification } = useNotification();
   const { showAlert, AlertComponent } = useCustomAlert();
@@ -166,6 +167,9 @@ const handleCloseImageDetails = useCallback(() => {
 
     try {
       logInfo('VaultScreen', 'Import started - user clicked import button');
+      
+      // Set importing flag to prevent automatic logout during image picker
+      setImportingFlag?.(true);
       // Always ensure master key is available before importing
       const { CryptoService } = require('../services/CryptoService');
       const cryptoService = CryptoService.getInstance();
@@ -303,7 +307,9 @@ const handleCloseImageDetails = useCallback(() => {
         }
       );
     } finally {
-      // Import completed
+      // Clear importing flag when import process completes (success or failure)
+      setImportingFlag?.(false);
+      logInfo('VaultScreen', 'Import process completed - clearing importing flag');
     }
   }, [mediaService, loadVaultItems, authService]);
 
@@ -504,20 +510,32 @@ const handleCloseImageDetails = useCallback(() => {
 
 
   const renderBottomNav = () => {
-    const tabs = [
-      { key: 'home', label: 'Home', icon: 'home' },
-      { key: 'folders', label: 'Folders', icon: 'folder' },
-    ];
-    
-    const rightTabs = [
-      { key: 'trash', label: 'Trash', icon: 'delete' },
-      { key: 'settings', label: 'Vault', icon: 'settings' },
-    ];
+      const tabs = [
+    { key: 'home', label: 'Home', icon: 'home' },
+    { key: 'folders', label: 'Folders', icon: 'folder' },
+    { key: 'upload', label: 'Add', icon: 'add', isUploadButton: true },
+    { key: 'trash', label: 'Trash', icon: 'delete' },
+    { key: 'settings', label: 'Settings', icon: 'settings' },
+  ];
 
-    return (
-      <View style={[styles.bottomNav, { backgroundColor: colors.vaultSurface }]}>
+return (
+    <View style={styles.bottomNavContainer}>
+      <View style={[styles.bottomNav, { backgroundColor: colors.surface }]}>
         <View style={styles.navContainer}>
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
+            if (tab.isUploadButton) {
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[styles.uploadButton, { backgroundColor: colors.vaultAccent }]}
+                  onPress={handleImportPress}
+                  activeOpacity={0.8}
+                >
+                  <Icon name="add" size={28} color={colors.surface} />
+                </TouchableOpacity>
+              );
+            }
+
             const isActive = currentScreen === tab.key;
             return (
               <TouchableOpacity
@@ -528,40 +546,13 @@ const handleCloseImageDetails = useCallback(() => {
               >
                 <Icon 
                   name={tab.icon} 
-                  size={22} 
+                  size={24} 
                   color={isActive ? colors.vaultAccent : colors.textSecondary} 
                 />
-                <Text style={[styles.navTabLabel, { color: isActive ? colors.vaultAccent : colors.textSecondary }]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          
-          {/* Upload button in the middle */}
-          <TouchableOpacity
-            style={[styles.uploadButton, { backgroundColor: colors.vaultAccent }]}
-            onPress={handleImportPress}
-            activeOpacity={0.8}
-          >
-            <Icon name="add" size={24} color={colors.surface} />
-          </TouchableOpacity>
-          
-          {rightTabs.map((tab) => {
-            const isActive = currentScreen === tab.key;
-            return (
-              <TouchableOpacity
-                key={tab.key}
-                style={styles.navTab}
-                onPress={() => setCurrentScreen(tab.key as ScreenMode)}
-                activeOpacity={0.7}
-              >
-                <Icon 
-                  name={tab.icon} 
-                  size={22} 
-                  color={isActive ? colors.vaultAccent : colors.textSecondary} 
-                />
-                <Text style={[styles.navTabLabel, { color: isActive ? colors.vaultAccent : colors.textSecondary }]}>
+                <Text style={[
+                  styles.navTabLabel, 
+                  { color: isActive ? colors.vaultAccent : colors.textSecondary }
+                ]}>
                   {tab.label}
                 </Text>
               </TouchableOpacity>
@@ -569,8 +560,9 @@ const handleCloseImageDetails = useCallback(() => {
           })}
         </View>
       </View>
-    );
-  };
+    </View>
+  );
+};
 
   const renderHomeScreen = () => {
     const filteredItems = getFilteredItems();
@@ -801,50 +793,61 @@ const styles = StyleSheet.create({
     color: COLORS.surface,
     marginLeft: 8,
   },
-  uploadButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.vaultAccent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    marginHorizontal: 8,
-  },
   screenContent: {
     flex: 1,
   },
+  bottomNavContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 8,
+    right: 8,
+    zIndex: 1000,
+  },
   bottomNav: {
-    paddingBottom: 20,
-    paddingTop: 8,
-    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 35,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
     elevation: 8,
   },
   navContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
+    paddingHorizontal: 8,
   },
   navTab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    minHeight: 44,
+    paddingHorizontal: 4,
+    minHeight: 56,
   },
   navTabLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     marginTop: 4,
+    textAlign: 'center',
   },
+  uploadButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+    marginHorizontal: 8,
+  }
+
 });
 
 export default VaultScreen;
