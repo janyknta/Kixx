@@ -1,27 +1,307 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+// App.tsx
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
+import 'react-native-get-random-values';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  StatusBar,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+import VaultScreen from './src/screens/VaultScreen';
+import { AuthService } from './src/services/AuthService';
+import { MediaService } from './src/services/MediaService';
+import { CryptoService } from './src/services/CryptoService';
+import { FileService } from './src/services/FileService';
+import { PermissionsUtil } from './src/utils/permissions';
+import { SecurityManager } from './src/utils/SecurityManager';
+import { logDebug, logInfo, logWarn, logError } from './src/services/Logger';
+import { COLORS } from './src/utils/constants';
+import AuthScreen from './src/components/AuthScreen';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { NotificationProvider } from './src/contexts/NotificationContext';
+import NotificationContainer from './src/components/NotificationContainer';
+
+const AppContent: React.FC = () => {
+  const { colors } = useTheme();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [authService] = useState(() => AuthService.getInstance());
+  const [mediaService] = useState(() => MediaService.getInstance());
+  const appStateRef = useRef(AppState.currentState);
+  const lastActiveTimeRef = useRef(Date.now());
+  const isAuthenticatedRef = useRef(false);
+  const isImportingRef = useRef(false);
+
+  useEffect(() => {
+    // Initialize last active time
+    lastActiveTimeRef.current = Date.now();
+    
+    initializeApp();
+    const cleanup = setupAppStateListener();
+
+    return () => {
+      // Cleanup on unmount
+      cleanup();
+      const cryptoService = CryptoService.getInstance();
+      cryptoService.secureCleanup();
+    };
+  }, []);
+
+  const initializeApp = async () => {
+    try {
+      setIsInitializing(true);
+
+      // Initialize services
+      await authService.initialize();
+      await mediaService.initialize();
+
+      // Check if user is already authenticated and session is valid
+      const authState = authService.getAuthState();
+      logDebug('App', 'Initialization auth state', authState);
+      logDebug('App', 'Session valid', { valid: authService.isSessionValid() });
+      
+      if (authState.isAuthenticated && authService.isSessionValid()) {
+        logInfo('App', 'Attempting to restore master key for valid session');
+        // Restore the master key for the valid session
+        const restoreResult = await authService.restoreMasterKey();
+        logDebug('App', 'Master key restore result', restoreResult);
+        
+        if (restoreResult.success) {
+          logInfo('App', 'Master key restored successfully');
+          setIsAuthenticated(true);
+          isAuthenticatedRef.current = true;
+        } else {
+          logError('App', 'Failed to restore master key', restoreResult.error);
+          // Force re-authentication if master key can't be restored
+          await authService.logout();
+          setIsAuthenticated(false);
+          isAuthenticatedRef.current = false;
+        }
+      } else {
+        logInfo('App', 'No valid session found');
+        setIsAuthenticated(false);
+        isAuthenticatedRef.current = false;
+      }
+
+      // Initialize permissions - only request once at startup
+      const permissionResult = await PermissionsUtil.initializePermissions();
+      if (!permissionResult.success && permissionResult.missingPermissions.length > 0) {
+        // Only log missing permissions, don't show annoying popups
+        logWarn('App', 'Missing permissions', { permissions: permissionResult.missingPermissions });
+        // App will still function with limited capabilities
+      }
+
+    } catch (error) {
+      logError('App', 'App initialization failed', error);
+      // Log critical initialization error - app may not function properly
+      console.error('Critical initialization error:', error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const setupAppStateListener = () => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      console.log('🔒 AppState changed:', appStateRef.current, '->', nextAppState);
+      logDebug('App', 'App state changed', { from: appStateRef.current, to: nextAppState });
+      
+      // Smart logout: only logout immediately if not in the middle of importing
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('🔒 App going to background/inactive - checking import status');
+        lastActiveTimeRef.current = Date.now();
+        
+        // If importing, allow grace period for image picker
+        if (isImportingRef.current) {
+          logInfo('App', 'App backgrounded during import - allowing grace period for image picker', { 
+            currentState: appStateRef.current, 
+            nextState: nextAppState,
+            isImporting: isImportingRef.current
+          });
+          
+          // Just perform background cleanup, don't logout yet
+          await handleAppBackground();
+        } else {
+          logInfo('App', 'App going to background/inactive - forcing immediate logout for security', { 
+            currentState: appStateRef.current, 
+            nextState: nextAppState,
+            wasAuthenticated: isAuthenticatedRef.current
+          });
+          
+          try {
+            // Perform background cleanup
+            await handleAppBackground();
+            
+            // Force logout immediately
+            logInfo('App', 'Clearing session and master key for security');
+            const cryptoService = CryptoService.getInstance();
+            cryptoService.clearMasterKey();
+            await authService.logout();
+            
+            // Set authentication to false and update ref
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+            
+            logInfo('App', 'Security logout completed successfully');
+          } catch (error) {
+            logError('App', 'Error during security logout', error);
+            // Force logout anyway for security
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          }
+        }
+      }
+      
+      // When returning to active, check if we should logout based on import status and time
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        const timeInBackground = Date.now() - lastActiveTimeRef.current;
+        const maxAllowedForImport = 60000; // 1 minute for import operations
+        const maxAllowedNormal = 5000; // 5 seconds for normal operations
+        
+        logInfo('App', 'App returning to foreground - checking security requirements', { 
+          timeInBackground, 
+          wasImporting: isImportingRef.current,
+          maxAllowed: isImportingRef.current ? maxAllowedForImport : maxAllowedNormal
+        });
+        
+        // Determine if we should logout based on context
+        const shouldLogout = isImportingRef.current ? 
+          timeInBackground > maxAllowedForImport : 
+          timeInBackground > maxAllowedNormal;
+        
+        if (shouldLogout) {
+          logInfo('App', 'Time limit exceeded - forcing logout for security');
+          try {
+            const cryptoService = CryptoService.getInstance();
+            cryptoService.clearMasterKey();
+            await authService.logout();
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          } catch (error) {
+            logError('App', 'Error during foreground security check', error);
+            setIsAuthenticated(false);
+            isAuthenticatedRef.current = false;
+          }
+        } else {
+          logInfo('App', 'App returned quickly - maintaining session');
+        }
+        
+        // Reset import flag when returning to foreground
+        isImportingRef.current = false;
+      }
+      
+      appStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  };
+
+  const handleAppBackground = async () => {
+    try {
+      logInfo('App', 'App going to background - performing background tasks');
+      
+      // Apply security measures (remove from recents on Android)
+      SecurityManager.handleAppBackground();
+      
+      // Clean up temporary files (thumbnails, temp media)
+      const fileService = FileService.getInstance();
+      await fileService.cleanupOldTempFiles(5); // Clean files older than 5 minutes
+      
+      // Don't clear master key or force logout immediately - let the foreground handler decide
+      // based on how long the app was in background
+      
+      // Update last active time
+      await authService.updateActivity();
+    } catch (error) {
+      logError('App', 'Failed to handle app background', error);
+    }
+  };
+
+
+  const handleAuthenticated = async () => {
+    try {
+      // Update activity timestamp
+      await authService.updateActivity();
+      
+      // Clean up old trash items
+      await mediaService.cleanupTrash();
+      
+      setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
+    } catch (error) {
+      logError('App', 'Post-authentication setup failed', error);
+      // Continue anyway - this is not critical
+      setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+      setIsAuthenticated(false);
+      isAuthenticatedRef.current = false;
+    } catch (error) {
+      logError('App', 'Logout failed', error);
+      // Force logout anyway
+      setIsAuthenticated(false);
+      isAuthenticatedRef.current = false;
+    }
+  };
+
+  const setImportingFlag = (isImporting: boolean) => {
+    isImportingRef.current = isImporting;
+    console.log('🔒 Import flag set to:', isImporting);
+  };
+
+  if (isInitializing) {
+    // Show loading screen while initializing
+    return (
+      <View style={[styles.initializingContainer, { backgroundColor: colors.vaultBackground }]}>
+        <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
+        {/* You can add a loading spinner or splash screen here */}
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <NewAppScreen templateFileName="App.tsx" />
+    <View style={[styles.container, { backgroundColor: colors.vaultBackground }]}>
+      <StatusBar backgroundColor={colors.vaultBackground} barStyle={colors.statusBarStyle} />
+      {isAuthenticated ? (
+        <VaultScreen onLogout={handleLogout} setImportingFlag={setImportingFlag} />
+      ) : (
+        <AuthScreen onAuthenticated={handleAuthenticated} />
+      )}
+      
+      {/* Global Notification Container */}
+      <NotificationContainer />
     </View>
   );
-}
+};
+
+const App: React.FC = () => {
+  return (
+    <ThemeProvider>
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
+    </ThemeProvider>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.vaultBackground,
+  },
+  initializingContainer: {
+    flex: 1,
+    backgroundColor: COLORS.vaultBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

@@ -10,11 +10,35 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        jcenter() {
+            content {
+                includeModule("com.yqritc", "Android-ScalableVideoView")
+            }
+        }
     }
     dependencies {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        jcenter() {
+            content {
+                includeModule("com.yqritc", "Android-ScalableVideoView")
+            }
+        }
+        maven { url "https://www.jitpack.io" }
+    }
+    
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.appcompat:appcompat:1.6.1'
+        }
     }
 }
 
