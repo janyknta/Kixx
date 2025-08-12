@@ -268,25 +268,23 @@ export class VideoStreamService {
       
       console.log('VideoStreamService: Starting to read encrypted file for decryption');
       
-      // Read entire encrypted file
-      const encryptedData = await RNFS.readFile(encryptedPath, 'utf8');
-      
-      console.log(`VideoStreamService: Read ${encryptedData.length} characters of encrypted data`);
+      // Use streaming approach for large files to avoid memory issues
+      console.log('VideoStreamService: Starting streaming decryption to avoid memory allocation errors');
       
       // Report progress - parsing/decrypting
       progressCallback?.({
-        bytesProcessed: encryptedSize * 0.3,
+        bytesProcessed: encryptedSize * 0.1,
         totalBytes: encryptedSize,
-        progress: 30,
+        progress: 10,
         currentChunk: 1,
         totalChunks: 1,
         phase: 'reading'
       });
       
-      console.log('VideoStreamService: Starting chunk parsing and decryption');
+      console.log('VideoStreamService: Starting streaming chunk parsing and decryption');
       
-      // Parse and decrypt chunks
-      const decryptedChunks = await this.parseAndDecryptChunks(encryptedData, cryptoService, progressCallback);
+      // Parse and decrypt chunks using streaming approach
+      const decryptedChunks = await this.parseAndDecryptChunksStreaming(encryptedPath, encryptedSize, cryptoService, progressCallback);
       if (!decryptedChunks.success) {
         return {
           success: false,
@@ -307,6 +305,12 @@ export class VideoStreamService {
       console.log('VideoStreamService: Writing decrypted chunks to output file');
 
       // Write chunks sequentially to output file
+      if (!decryptedChunks.data) {
+        return {
+          success: false,
+          error: 'No decrypted data received'
+        };
+      }
       await this.writeDecryptedChunksToFile(outputPath, decryptedChunks.data);
       
       // Cache the decrypted video for faster future playback
@@ -338,7 +342,143 @@ export class VideoStreamService {
   }
   
   /**
-   * Parse and decrypt chunked encrypted data
+   * Parse and decrypt chunked encrypted data using streaming approach to avoid memory issues
+   */
+  private async parseAndDecryptChunksStreaming(
+    encryptedPath: string,
+    encryptedSize: number,
+    cryptoService: CryptoService,
+    progressCallback?: (progress: StreamProgress) => void
+  ): Promise<{ success: boolean; data?: string | string[]; error?: string }> {
+    try {
+      console.log('VideoStreamService: Starting streaming chunk decryption');
+      
+      // Read file in smaller chunks to avoid memory issues
+      const BUFFER_SIZE = 2 * 1024 * 1024; // 2MB buffer chunks
+      const decryptedChunks: string[] = [];
+      let processedBytes = 0;
+      let buffer = '';
+      
+      while (processedBytes < encryptedSize) {
+        const remainingBytes = encryptedSize - processedBytes;
+        const chunkSize = Math.min(BUFFER_SIZE, remainingBytes);
+        
+        // Read chunk from file
+        const chunk = await RNFS.read(encryptedPath, chunkSize, processedBytes, 'utf8');
+        buffer += chunk;
+        processedBytes += chunkSize;
+        
+        // Process complete encrypted blocks from buffer
+        const processed = await this.processBufferChunks(buffer, cryptoService);
+        if (processed.chunks.length > 0) {
+          decryptedChunks.push(...processed.chunks);
+        }
+        buffer = processed.remaining;
+        
+        // Report progress
+        const progress = Math.round(10 + (processedBytes / encryptedSize) * 70); // 10-80% range
+        progressCallback?.({
+          bytesProcessed: processedBytes,
+          totalBytes: encryptedSize,
+          progress,
+          currentChunk: decryptedChunks.length,
+          totalChunks: Math.ceil(encryptedSize / BUFFER_SIZE),
+          phase: 'reading'
+        });
+        
+        // Force garbage collection periodically
+        if (global.gc && processedBytes % (4 * 1024 * 1024) === 0) {
+          global.gc();
+        }
+      }
+      
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        const final = await this.processBufferChunks(buffer, cryptoService);
+        if (final.chunks.length > 0) {
+          decryptedChunks.push(...final.chunks);
+        }
+      }
+      
+      console.log(`VideoStreamService: Successfully decrypted ${decryptedChunks.length} chunks via streaming`);
+      return { success: true, data: decryptedChunks };
+      
+    } catch (error) {
+      console.error('VideoStreamService: Streaming chunk decryption failed:', error);
+      return { success: false, error: `Streaming decryption failed: ${error}` };
+    }
+  }
+
+  /**
+   * Process buffer to extract and decrypt complete chunks
+   */
+  private async processBufferChunks(
+    buffer: string,
+    cryptoService: CryptoService
+  ): Promise<{ chunks: string[]; remaining: string }> {
+    const chunks: string[] = [];
+    let currentPos = 0;
+    const ivLength = VAULT_CONFIG.IV_LENGTH * 2; // Hex string length
+    
+    while (currentPos < buffer.length) {
+      // Find IV:Data pattern
+      const ivEnd = currentPos + ivLength;
+      if (ivEnd >= buffer.length || buffer[ivEnd] !== ':') {
+        // Not enough data for complete chunk, return remaining buffer
+        break;
+      }
+      
+      // Look for next IV pattern to determine chunk boundary
+      let nextChunkStart = currentPos + ivLength + 1;
+      let nextIVPos = -1;
+      
+      while (nextChunkStart < buffer.length - ivLength - 1) {
+        const potentialIVEnd = nextChunkStart + ivLength;
+        if (potentialIVEnd < buffer.length && buffer[potentialIVEnd] === ':') {
+          const potentialIV = buffer.substring(nextChunkStart, potentialIVEnd);
+          if (/^[0-9a-fA-F]+$/.test(potentialIV)) {
+            nextIVPos = nextChunkStart;
+            break;
+          }
+        }
+        nextChunkStart++;
+      }
+      
+      // If no next chunk found and we're not at end, wait for more data
+      if (nextIVPos === -1 && currentPos + ivLength + 1 < buffer.length) {
+        // Check if this might be the last chunk by trying to decrypt what we have
+        const possibleChunk = buffer.substring(currentPos);
+        const testResult = cryptoService.decryptFile(possibleChunk);
+        if (testResult.success) {
+          chunks.push(testResult.decryptedData);
+          currentPos = buffer.length;
+          break;
+        } else {
+          // Wait for more data
+          break;
+        }
+      }
+      
+      // Extract and decrypt chunk
+      const chunkEnd = nextIVPos > 0 ? nextIVPos : buffer.length;
+      const chunk = buffer.substring(currentPos, chunkEnd);
+      
+      const decryptResult = cryptoService.decryptFile(chunk);
+      if (decryptResult.success) {
+        chunks.push(decryptResult.decryptedData);
+      } else {
+        console.warn('VideoStreamService: Failed to decrypt buffer chunk, skipping');
+      }
+      
+      currentPos = nextIVPos > 0 ? nextIVPos : buffer.length;
+    }
+    
+    const remaining = buffer.substring(currentPos);
+    return { chunks, remaining };
+  }
+
+  /**
+   * Parse and decrypt chunked encrypted data (kept for fallback)
    */
   private async parseAndDecryptChunks(
     encryptedData: string, 
@@ -578,7 +718,7 @@ export class VideoStreamService {
       const cacheFiles = await RNFS.readDir(cacheDir);
       
       // Sort by modification time (newest first)
-      cacheFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+      cacheFiles.sort((a: any, b: any) => b.mtime.getTime() - a.mtime.getTime());
       
       // Keep only the 3 most recent files
       const filesToDelete = cacheFiles.slice(3);

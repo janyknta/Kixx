@@ -51,6 +51,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ vaultItem, onClose }) => {
     
     return () => {
       // Clean up temp video file when component unmounts
+      // Force garbage collection to help with memory cleanup
+      if (global.gc) {
+        setTimeout(() => global.gc(), 100);
+      }
       // The MediaService will handle cleanup of temp files
     };
   }, []);
